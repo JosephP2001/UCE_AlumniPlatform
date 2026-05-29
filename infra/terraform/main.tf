@@ -10,7 +10,7 @@ terraform {
     }
   }
   backend "s3" {
-    bucket = "uce-alumni-tfstate"
+    bucket = "uce-alumni-tfstate-qa"
     key    = "qa/terraform.tfstate"
     region = "us-east-1"
   }
