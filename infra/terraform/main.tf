@@ -74,7 +74,7 @@ resource "aws_route_table_association" "public_1a" {
 # SECURITY GROUPS
 # ─────────────────────────────────────────
 resource "aws_security_group" "sg_bastion" {
-  name        = "sg-bastion"
+  name        = "uce-bastion"
   description = "SSH access to bastion host"
   vpc_id      = aws_vpc.main.id
 
@@ -90,11 +90,11 @@ resource "aws_security_group" "sg_bastion" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  tags = { Name = "sg-bastion" }
+  tags = { Name = "uce-bastion" }
 }
 
 resource "aws_security_group" "sg_private" {
-  name        = "sg-private"
+  name        = "uce-private"
   description = "Private EC2 instances"
   vpc_id      = aws_vpc.main.id
 
@@ -116,15 +116,14 @@ resource "aws_security_group" "sg_private" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  tags = { Name = "sg-private" }
+  tags = { Name = "uce-private" }
 }
 
 # ─────────────────────────────────────────
 # KEY PAIR
 # ─────────────────────────────────────────
-resource "aws_key_pair" "qa_key" {
-  key_name   = "QA"
-  public_key = file("~/.ssh/QA.pub")
+data "aws_key_pair" "qa_key" {
+  key_name = "QA"
 }
 
 # ─────────────────────────────────────────
@@ -143,7 +142,7 @@ resource "aws_instance" "bastion" {
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = "t3.micro"
   subnet_id              = aws_subnet.public_1a.id
-  key_name               = aws_key_pair.qa_key.key_name
+  key_name               = data.aws_key_pair.qa_key.key_name
   vpc_security_group_ids = [aws_security_group.sg_bastion.id]
   tags = { Name = "uce-qa-bastion" }
 }
@@ -155,7 +154,7 @@ resource "aws_instance" "qa_auth_jobs" {
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = "t3.micro"
   subnet_id              = aws_subnet.private_1a.id
-  key_name               = aws_key_pair.qa_key.key_name
+  key_name               = data.aws_key_pair.qa_key.key_name
   vpc_security_group_ids = [aws_security_group.sg_private.id]
 
   user_data = <<-EOF
