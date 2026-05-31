@@ -70,5 +70,6 @@ jobs:
             -i "${{ secrets.QA_BASTION_IP }}," \
             --private-key ~/.ssh/QA.pem \
             -u ubuntu \
-            -e "bastion_ip=${{ secrets.QA_BASTION_IP }}" \
-            -e "private_ip=10.0.3.171"
+            -e "jwt_secret=${{ secrets.JWT_SECRET }}" \
+            -e "oauth_client_id=${{ secrets.OAUTH_CLIENT_ID }}" \
+            -e "oauth_client_secret=${{ secrets.OAUTH_CLIENT_SECRET }}"

@@ -1,19 +1,26 @@
 ---
 - name: Deploy QA services
-  hosts: bastion
+  hosts: all
   become: yes
   gather_facts: no
 
   tasks:
+    - name: Create Docker network
+      community.docker.docker_network:
+        name: uce-network
+        state: present
+
     - name: Pull auth-service image
       community.docker.docker_image:
         name: josephp2001/uce-auth-service:qa
         source: pull
+        force_source: yes
 
     - name: Pull jobs-service image
       community.docker.docker_image:
         name: josephp2001/uce-jobs-service:qa
         source: pull
+        force_source: yes
 
     - name: Run auth-service container
       community.docker.docker_container:
@@ -21,8 +28,17 @@
         image: josephp2001/uce-auth-service:qa
         state: started
         restart_policy: always
+        recreate: yes
+        networks:
+          - name: uce-network
         ports:
           - "3000:3000"
+        env:
+          NODE_ENV: "production"
+          PORT: "3000"
+          JWT_SECRET: "{{ jwt_secret }}"
+          OAUTH_CLIENT_ID: "{{ oauth_client_id }}"
+          OAUTH_CLIENT_SECRET: "{{ oauth_client_secret }}"
 
     - name: Run jobs-service container
       community.docker.docker_container:
@@ -30,5 +46,18 @@
         image: josephp2001/uce-jobs-service:qa
         state: started
         restart_policy: always
+        recreate: yes
+        networks:
+          - name: uce-network
         ports:
-          - "3001:3000"
+          - "3001:3001"
+        env:
+          NODE_ENV: "production"
+          PORT: "3001"
+          PG_HOST: "localhost"
+          PG_PORT: "5432"
+          PG_DATABASE: "jobs_db"
+          PG_USER: "postgres"
+          PG_PASSWORD: "postgres"
+          REDIS_HOST: "localhost"
+          REDIS_PORT: "6379"
