@@ -1,0 +1,34 @@
+---
+- name: Deploy QA services
+  hosts: bastion
+  become: yes
+  gather_facts: no
+
+  tasks:
+    - name: Pull auth-service image
+      community.docker.docker_image:
+        name: josephp2001/uce-auth-service:qa
+        source: pull
+
+    - name: Pull jobs-service image
+      community.docker.docker_image:
+        name: josephp2001/uce-jobs-service:qa
+        source: pull
+
+    - name: Run auth-service container
+      community.docker.docker_container:
+        name: auth-service
+        image: josephp2001/uce-auth-service:qa
+        state: started
+        restart_policy: always
+        ports:
+          - "3000:3000"
+
+    - name: Run jobs-service container
+      community.docker.docker_container:
+        name: jobs-service
+        image: josephp2001/uce-jobs-service:qa
+        state: started
+        restart_policy: always
+        ports:
+          - "3001:3000"
