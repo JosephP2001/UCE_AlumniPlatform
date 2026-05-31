@@ -1,63 +1,61 @@
 ---
-- name: Deploy QA services
+- name: Deploy QA services via SSH
   hosts: all
   become: yes
   gather_facts: no
 
   tasks:
     - name: Create Docker network
-      community.docker.docker_network:
-        name: uce-network
-        state: present
+      shell: docker network create uce-network || true
 
     - name: Pull auth-service image
-      community.docker.docker_image:
-        name: josephp2001/uce-auth-service:qa
-        source: pull
-        force_source: yes
+      shell: docker pull josephp2001/uce-auth-service:qa
 
     - name: Pull jobs-service image
-      community.docker.docker_image:
-        name: josephp2001/uce-jobs-service:qa
-        source: pull
-        force_source: yes
+      shell: docker pull josephp2001/uce-jobs-service:qa
+
+    - name: Stop and remove auth-service container
+      shell: docker stop auth-service && docker rm auth-service || true
+
+    - name: Stop and remove jobs-service container
+      shell: docker stop jobs-service && docker rm jobs-service || true
 
     - name: Run auth-service container
-      community.docker.docker_container:
-        name: auth-service
-        image: josephp2001/uce-auth-service:qa
-        state: started
-        restart_policy: always
-        recreate: yes
-        networks:
-          - name: uce-network
-        ports:
-          - "3000:3000"
-        env:
-          NODE_ENV: "production"
-          PORT: "3000"
-          JWT_SECRET: "{{ jwt_secret }}"
-          OAUTH_CLIENT_ID: "{{ oauth_client_id }}"
-          OAUTH_CLIENT_SECRET: "{{ oauth_client_secret }}"
+      shell: |
+        docker run -d \
+          --name auth-service \
+          --network uce-network \
+          --restart always \
+          -p 3000:3000 \
+          -e NODE_ENV=production \
+          -e PORT=3000 \
+          -e JWT_SECRET="{{ jwt_secret }}" \
+          -e OAUTH_CLIENT_ID="{{ oauth_client_id }}" \
+          -e OAUTH_CLIENT_SECRET="{{ oauth_client_secret }}" \
+          josephp2001/uce-auth-service:qa
 
     - name: Run jobs-service container
-      community.docker.docker_container:
-        name: jobs-service
-        image: josephp2001/uce-jobs-service:qa
-        state: started
-        restart_policy: always
-        recreate: yes
-        networks:
-          - name: uce-network
-        ports:
-          - "3001:3001"
-        env:
-          NODE_ENV: "production"
-          PORT: "3001"
-          PG_HOST: "localhost"
-          PG_PORT: "5432"
-          PG_DATABASE: "jobs_db"
-          PG_USER: "postgres"
-          PG_PASSWORD: "postgres"
-          REDIS_HOST: "localhost"
-          REDIS_PORT: "6379"
+      shell: |
+        docker run -d \
+          --name jobs-service \
+          --network uce-network \
+          --restart always \
+          -p 3001:3001 \
+          -e NODE_ENV=production \
+          -e PORT=3001 \
+          -e PG_HOST=localhost \
+          -e PG_PORT=5432 \
+          -e PG_DATABASE=jobs_db \
+          -e PG_USER=postgres \
+          -e PG_PASSWORD=postgres \
+          -e REDIS_HOST=localhost \
+          -e REDIS_PORT=6379 \
+          josephp2001/uce-jobs-service:qa
+
+    - name: Verify containers are running
+      shell: docker ps
+      register: docker_ps
+
+    - name: Show running containers
+      debug:
+        var: docker_ps.stdout_lines
