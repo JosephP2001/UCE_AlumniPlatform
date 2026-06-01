@@ -3,7 +3,6 @@
   hosts: all
   become: yes
   gather_facts: yes
-
   tasks:
     - name: Install dependencies
       apt:
@@ -53,6 +52,45 @@
     - name: Create Docker network
       shell: docker network create uce-network || true
 
+    # ── DATABASES ──────────────────────────────────────────────
+
+    - name: Stop and remove postgres container
+      shell: docker stop postgres && docker rm postgres || true
+
+    - name: Run PostgreSQL container
+      shell: |
+        docker run -d \
+          --name postgres \
+          --network uce-network \
+          --restart always \
+          -e POSTGRES_DB=jobs_db \
+          -e POSTGRES_USER=postgres \
+          -e POSTGRES_PASSWORD="{{ pg_password }}" \
+          -v pg_data:/var/lib/postgresql/data \
+          postgres:15-alpine
+
+    - name: Stop and remove redis container
+      shell: docker stop redis && docker rm redis || true
+
+    - name: Run Redis container
+      shell: |
+        docker run -d \
+          --name redis \
+          --network uce-network \
+          --restart always \
+          -v redis_data:/data \
+          redis:7-alpine
+
+    - name: Wait for PostgreSQL to be ready
+      shell: |
+        for i in $(seq 1 15); do
+          docker exec postgres pg_isready -U postgres && exit 0
+          sleep 2
+        done
+        exit 1
+
+    # ── SERVICES ───────────────────────────────────────────────
+
     - name: Pull auth-service image
       shell: docker pull josephp2001/uce-auth-service:qa
 
@@ -77,6 +115,8 @@
           -e JWT_SECRET="{{ jwt_secret }}" \
           -e OAUTH_CLIENT_ID="{{ oauth_client_id }}" \
           -e OAUTH_CLIENT_SECRET="{{ oauth_client_secret }}" \
+          -e REDIS_HOST=redis \
+          -e REDIS_PORT=6379 \
           josephp2001/uce-auth-service:qa
 
     - name: Run jobs-service container
@@ -88,12 +128,12 @@
           -p 3001:3001 \
           -e NODE_ENV=production \
           -e PORT=3001 \
-          -e PG_HOST=localhost \
+          -e PG_HOST=postgres \
           -e PG_PORT=5432 \
           -e PG_DATABASE=jobs_db \
           -e PG_USER=postgres \
-          -e PG_PASSWORD=postgres \
-          -e REDIS_HOST=localhost \
+          -e PG_PASSWORD="{{ pg_password }}" \
+          -e REDIS_HOST=redis \
           -e REDIS_PORT=6379 \
           josephp2001/uce-jobs-service:qa
 
