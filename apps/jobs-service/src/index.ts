@@ -25,6 +25,7 @@ const initDB = async () => {
       company VARCHAR(255) NOT NULL,
       description TEXT,
       location VARCHAR(255),
+      salary VARCHAR(100),
       created_at TIMESTAMP DEFAULT NOW()
     )
   `);
