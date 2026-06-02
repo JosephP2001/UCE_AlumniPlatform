@@ -55,15 +55,30 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/PROD.pem
           chmod 400 ~/.ssh/PROD.pem
+          cat >> ~/.ssh/config << EOF
+          Host bastion-prod
+            HostName ${{ secrets.PROD_BASTION_IP }}
+            User ubuntu
+            IdentityFile ~/.ssh/PROD.pem
+            StrictHostKeyChecking no
+          Host prod-private
+            HostName ${{ secrets.PROD_AUTH_JOBS_IP }}
+            User ubuntu
+            IdentityFile ~/.ssh/PROD.pem
+            ProxyJump bastion-prod
+            StrictHostKeyChecking no
+          EOF
           ssh-keyscan -H ${{ secrets.PROD_BASTION_IP }} >> ~/.ssh/known_hosts
+          ssh prod-private "echo SSH ProxyJump OK"
 
       - name: Deploy via Ansible
         run: |
           pip install ansible
           ansible-playbook infra/ansible/deploy-prod.yml \
-            -i "${{ secrets.PROD_BASTION_IP }}," \
+            -i "${{ secrets.PROD_AUTH_JOBS_IP }}," \
             --private-key ~/.ssh/PROD.pem \
             -u ubuntu \
+            --ssh-extra-args="-o ProxyJump=ubuntu@${{ secrets.PROD_BASTION_IP }} -o StrictHostKeyChecking=no -i ~/.ssh/PROD.pem" \
             -e "jwt_secret=${{ secrets.JWT_SECRET }}" \
             -e "oauth_client_id=${{ secrets.OAUTH_CLIENT_ID }}" \
             -e "oauth_client_secret=${{ secrets.OAUTH_CLIENT_SECRET }}" \
