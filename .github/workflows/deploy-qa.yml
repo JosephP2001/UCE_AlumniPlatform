@@ -92,7 +92,7 @@ jobs:
             -i "${{ secrets.QA_AUTH_JOBS_IP }}," \
             --private-key ~/.ssh/QA.pem \
             -u ubuntu \
-            --ssh-extra-args="-o ProxyJump=ubuntu@${{ secrets.QA_BASTION_IP }} -o StrictHostKeyChecking=no -i ~/.ssh/QA.pem" \
+            --ssh-extra-args="-o ProxyJump=ubuntu@${{ secrets.QA_BASTION_IP }} -o StrictHostKeyChecking=no" \
             -e "jwt_secret=${{ secrets.JWT_SECRET }}" \
             -e "oauth_client_id=${{ secrets.OAUTH_CLIENT_ID }}" \
             -e "oauth_client_secret=${{ secrets.OAUTH_CLIENT_SECRET }}" \
