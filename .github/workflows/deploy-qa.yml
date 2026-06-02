@@ -55,44 +55,21 @@ jobs:
           context: ./apps/jobs-service
           push: true
           tags: josephp2001/uce-jobs-service:qa
-          
-      - name: Free disk space on runner
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          docker system prune -af
-
 
       - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.QA_SSH_KEY }}" > ~/.ssh/QA.pem
           chmod 400 ~/.ssh/QA.pem
-          cat >> ~/.ssh/config << EOF
-          Host bastion-qa
-            HostName ${{ secrets.QA_BASTION_IP }}
-            User ubuntu
-            IdentityFile ~/.ssh/QA.pem
-            StrictHostKeyChecking no
-          Host qa-private
-            HostName ${{ secrets.QA_AUTH_JOBS_IP }}
-            User ubuntu
-            IdentityFile ~/.ssh/QA.pem
-            ProxyJump bastion-qa
-            StrictHostKeyChecking no
-          EOF
           ssh-keyscan -H ${{ secrets.QA_BASTION_IP }} >> ~/.ssh/known_hosts
-          ssh qa-private "echo SSH ProxyJump OK"
 
       - name: Deploy via Ansible
         run: |
           pip install ansible
           ansible-playbook infra/ansible/deploy-qa.yml \
-            -i "${{ secrets.QA_AUTH_JOBS_IP }}," \
+            -i "${{ secrets.QA_BASTION_IP }}," \
             --private-key ~/.ssh/QA.pem \
             -u ubuntu \
-            --ssh-extra-args="-o ProxyJump=ubuntu@${{ secrets.QA_BASTION_IP }} -o StrictHostKeyChecking=no" \
             -e "jwt_secret=${{ secrets.JWT_SECRET }}" \
             -e "oauth_client_id=${{ secrets.OAUTH_CLIENT_ID }}" \
             -e "oauth_client_secret=${{ secrets.OAUTH_CLIENT_SECRET }}" \
