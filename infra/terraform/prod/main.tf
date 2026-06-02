@@ -87,7 +87,7 @@ resource "aws_route_table_association" "public_1b" {
 # SECURITY GROUPS
 # ─────────────────────────────────────────
 resource "aws_security_group" "sg_bastion" {
-  name        = "sg-bastion-prod"
+  name = "bastion-prod"
   description = "SSH access to bastion host"
   vpc_id      = aws_vpc.main.id
 
@@ -103,11 +103,11 @@ resource "aws_security_group" "sg_bastion" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  tags = { Name = "sg-bastion-prod" }
+  tags = { name = "bastion-prod" }
 }
 
 resource "aws_security_group" "sg_nginx" {
-  name        = "sg-nginx-prod"
+  name = "nginx-prod"
   description = "ELB and Nginx"
   vpc_id      = aws_vpc.main.id
 
@@ -129,11 +129,11 @@ resource "aws_security_group" "sg_nginx" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  tags = { Name = "sg-nginx-prod" }
+  tags = { name = "nginx-prod" }
 }
 
 resource "aws_security_group" "sg_private" {
-  name        = "sg-private-prod"
+  name = "private-prod"
   description = "Private EC2 instances"
   vpc_id      = aws_vpc.main.id
 
@@ -163,7 +163,7 @@ resource "aws_security_group" "sg_private" {
 # ─────────────────────────────────────────
 resource "aws_key_pair" "prod_key" {
   key_name   = "PROD"
-  public_key = file("~/.ssh/PROD.pub")
+  public_key = file("${path.module}/PROD.pub")
 }
 
 # ─────────────────────────────────────────

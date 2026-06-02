@@ -1,14 +1,11 @@
 name: Deploy to PROD
-
 on:
   push:
     branches:
       - master
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -16,10 +13,22 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
+
+      - name: Run tests - jobs-service
+        run: |
+          cd apps/jobs-service
+          npm install
+          npm test
+
+      - name: Run tests - auth-service
+        run: |
+          cd apps/auth-service
+          npm install
+          npm test
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -40,3 +49,22 @@ jobs:
           context: ./apps/jobs-service
           push: true
           tags: josephp2001/uce-jobs-service:latest
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/PROD.pem
+          chmod 400 ~/.ssh/PROD.pem
+          ssh-keyscan -H ${{ secrets.PROD_BASTION_IP }} >> ~/.ssh/known_hosts
+
+      - name: Deploy via Ansible
+        run: |
+          pip install ansible
+          ansible-playbook infra/ansible/deploy-prod.yml \
+            -i "${{ secrets.PROD_BASTION_IP }}," \
+            --private-key ~/.ssh/PROD.pem \
+            -u ubuntu \
+            -e "jwt_secret=${{ secrets.JWT_SECRET }}" \
+            -e "oauth_client_id=${{ secrets.OAUTH_CLIENT_ID }}" \
+            -e "oauth_client_secret=${{ secrets.OAUTH_CLIENT_SECRET }}" \
+            -e "pg_password=${{ secrets.PG_PASSWORD }}"
