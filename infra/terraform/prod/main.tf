@@ -84,10 +84,39 @@ resource "aws_route_table_association" "public_1b" {
 }
 
 # ─────────────────────────────────────────
+# NAT GATEWAY — private subnet outbound
+# ─────────────────────────────────────────
+resource "aws_eip" "nat_eip" {
+  domain = "vpc"
+  tags   = { Name = "uce-prod-nat-eip" }
+}
+
+resource "aws_nat_gateway" "nat" {
+  allocation_id = aws_eip.nat_eip.id
+  subnet_id     = aws_subnet.public_1a.id
+  tags          = { Name = "uce-prod-nat" }
+  depends_on    = [aws_internet_gateway.igw]
+}
+
+resource "aws_route_table" "private" {
+  vpc_id = aws_vpc.main.id
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.nat.id
+  }
+  tags = { Name = "uce-prod-private-rt" }
+}
+
+resource "aws_route_table_association" "private_1a" {
+  subnet_id      = aws_subnet.private_1a.id
+  route_table_id = aws_route_table.private.id
+}
+
+# ─────────────────────────────────────────
 # SECURITY GROUPS
 # ─────────────────────────────────────────
 resource "aws_security_group" "sg_bastion" {
-  name = "bastion-prod"
+  name        = "bastion-prod"
   description = "SSH access to bastion host"
   vpc_id      = aws_vpc.main.id
 
@@ -103,11 +132,11 @@ resource "aws_security_group" "sg_bastion" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  tags = { name = "bastion-prod" }
+  tags = { Name = "bastion-prod" }
 }
 
 resource "aws_security_group" "sg_nginx" {
-  name = "nginx-prod"
+  name        = "nginx-prod"
   description = "ELB and Nginx"
   vpc_id      = aws_vpc.main.id
 
@@ -129,11 +158,11 @@ resource "aws_security_group" "sg_nginx" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  tags = { name = "nginx-prod" }
+  tags = { Name = "nginx-prod" }
 }
 
 resource "aws_security_group" "sg_private" {
-  name = "private-prod"
+  name        = "private-prod"
   description = "Private EC2 instances"
   vpc_id      = aws_vpc.main.id
 
@@ -155,7 +184,7 @@ resource "aws_security_group" "sg_private" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  tags = { Name = "sg-private-prod" }
+  tags = { Name = "private-prod" }
 }
 
 # ─────────────────────────────────────────
@@ -187,7 +216,17 @@ resource "aws_instance" "bastion" {
   subnet_id              = aws_subnet.public_1a.id
   key_name               = aws_key_pair.prod_key.key_name
   vpc_security_group_ids = [aws_security_group.sg_bastion.id]
-  tags = { Name = "uce-prod-bastion" }
+  tags                   = { Name = "uce-prod-bastion" }
+}
+
+# ─────────────────────────────────────────
+# ELASTIC IP — Bastion (fixed public IP)
+# ─────────────────────────────────────────
+resource "aws_eip" "bastion_eip" {
+  instance   = aws_instance.bastion.id
+  domain     = "vpc"
+  depends_on = [aws_internet_gateway.igw]
+  tags       = { Name = "uce-prod-bastion-eip" }
 }
 
 # ─────────────────────────────────────────
@@ -199,7 +238,72 @@ resource "aws_lb" "prod_elb" {
   load_balancer_type = "application"
   security_groups    = [aws_security_group.sg_nginx.id]
   subnets            = [aws_subnet.public_1a.id, aws_subnet.public_1b.id]
-  tags = { Name = "uce-prod-elb" }
+  tags               = { Name = "uce-prod-elb" }
+}
+
+# ─────────────────────────────────────────
+# TARGET GROUPS — auth-service + jobs-service
+# ─────────────────────────────────────────
+resource "aws_lb_target_group" "auth_tg" {
+  name     = "uce-prod-auth-tg"
+  port     = 3000
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.main.id
+
+  health_check {
+    path                = "/health"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+  }
+  tags = { Name = "uce-prod-auth-tg" }
+}
+
+resource "aws_lb_target_group" "jobs_tg" {
+  name     = "uce-prod-jobs-tg"
+  port     = 3001
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.main.id
+
+  health_check {
+    path                = "/health"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+  }
+  tags = { Name = "uce-prod-jobs-tg" }
+}
+
+# ─────────────────────────────────────────
+# ELB LISTENERS
+# ─────────────────────────────────────────
+resource "aws_lb_listener" "http" {
+  load_balancer_arn = aws_lb.prod_elb.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.auth_tg.arn
+  }
+}
+
+resource "aws_lb_listener_rule" "jobs_rule" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 100
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.jobs_tg.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/jobs*"]
+    }
+  }
 }
 
 # ─────────────────────────────────────────
@@ -219,20 +323,12 @@ resource "aws_instance" "prod_auth_jobs" {
     install -m 0755 -d /etc/apt/keyrings
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
     chmod a+r /etc/apt/keyrings/docker.gpg
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
     apt update -y
     apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
     systemctl enable docker
     systemctl start docker
     usermod -aG docker ubuntu
-    curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-    echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" | tee /etc/apt/sources.list.d/kubernetes.list
-    apt update -y
-    apt install -y kubelet kubeadm kubectl
-    apt-mark hold kubelet kubeadm kubectl
-    systemctl enable kubelet
-    swapoff -a
-    sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
   EOF
 
   root_block_device {
@@ -244,8 +340,27 @@ resource "aws_instance" "prod_auth_jobs" {
 }
 
 # ─────────────────────────────────────────
+# TARGET GROUP ATTACHMENT
+# ─────────────────────────────────────────
+resource "aws_lb_target_group_attachment" "auth_attachment" {
+  target_group_arn = aws_lb_target_group.auth_tg.arn
+  target_id        = aws_instance.prod_auth_jobs.id
+  port             = 3000
+}
+
+resource "aws_lb_target_group_attachment" "jobs_attachment" {
+  target_group_arn = aws_lb_target_group.jobs_tg.arn
+  target_id        = aws_instance.prod_auth_jobs.id
+  port             = 3001
+}
+
+# ─────────────────────────────────────────
 # OUTPUTS
 # ─────────────────────────────────────────
+output "bastion_eip" {
+  value = aws_eip.bastion_eip.public_ip
+}
+
 output "bastion_public_ip" {
   value = aws_instance.bastion.public_ip
 }
