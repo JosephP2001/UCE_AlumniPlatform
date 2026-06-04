@@ -144,3 +144,19 @@
     - name: Show running containers
       debug:
         var: docker_ps.stdout_lines
+    
+    - name: Pull web-app image
+      shell: docker pull josephp2001/uce-web-app:qa
+
+    - name: Stop and remove web-app container
+      shell: docker stop web-app && docker rm web-app || true
+
+    - name: Run web-app container
+      shell: |
+        docker run -d \
+          --name web-app \
+          --network uce-network \
+          --restart always \
+          -p 3002:3002 \
+          -e NODE_ENV=production \
+          josephp2001/uce-web-app:qa
