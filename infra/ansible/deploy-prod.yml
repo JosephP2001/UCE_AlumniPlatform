@@ -10,6 +10,19 @@
       -o StrictHostKeyChecking=no
       -o ProxyCommand="ssh -W %h:%p -i ~/.ssh/PROD.pem -o StrictHostKeyChecking=no ubuntu@{{ bastion_ip }}"
   tasks:
+    - name: Remove broken Docker repository
+      file:
+        path: /etc/apt/sources.list.d/docker.list
+        state: absent
+
+    - name: Remove broken Kubernetes repository
+      file:
+        path: /etc/apt/sources.list.d/kubernetes.list
+        state: absent
+
+    - name: Clean apt cache
+      shell: apt-get clean && apt-get update --allow-insecure-repositories || true
+        
     - name: Install dependencies
       apt:
         name:
