@@ -8,15 +8,15 @@ type Status = {
   timestamp: string;
 } | null;
 
-const AUTH_URL = process.env.NEXT_PUBLIC_AUTH_URL || 'http://localhost:3000';
-const JOBS_URL = process.env.NEXT_PUBLIC_JOBS_URL || 'http://localhost:3001';
+const AUTH_URL = '';
+const JOBS_URL = '';
 
 export default function ServiceStatus() {
   const [auth, setAuth] = useState<Status>(null);
   const [jobs, setJobs] = useState<Status>(null);
 
   useEffect(() => {
-    fetch(`${AUTH_URL}/health`)
+    fetch(`${AUTH_URL}/api/auth/health`)
       .then((r) => r.json())
       .then(setAuth)
       .catch(() =>
@@ -27,7 +27,7 @@ export default function ServiceStatus() {
         }),
       );
 
-    fetch(`${JOBS_URL}/health`)
+    fetch(`${JOBS_URL}/api/jobs/health`)
       .then((r) => r.json())
       .then(setJobs)
       .catch(() =>
