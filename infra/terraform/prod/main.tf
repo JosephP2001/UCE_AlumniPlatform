@@ -178,6 +178,12 @@ resource "aws_security_group" "sg_private" {
     protocol        = "tcp"
     security_groups = [aws_security_group.sg_bastion.id]
   }
+  ingress {
+    from_port       = 3000
+    to_port         = 3001
+    protocol        = "tcp"
+    security_groups = [aws_security_group.sg_nginx.id]
+  }
   egress {
     from_port   = 0
     to_port     = 0
@@ -337,6 +343,9 @@ resource "aws_instance" "prod_auth_jobs" {
   }
 
   tags = { Name = "uce-prod-ec2-auth-jobs" }
+  lifecycle {
+    ignore_changes = [user_data, ami]
+  }
 }
 
 # ─────────────────────────────────────────

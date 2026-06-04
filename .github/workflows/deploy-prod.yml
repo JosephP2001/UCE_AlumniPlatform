@@ -50,21 +50,29 @@ jobs:
           push: true
           tags: josephp2001/uce-jobs-service:latest
 
-      - name: Setup SSH key
+      - name: Setup SSH keys
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/PROD.pem
           chmod 400 ~/.ssh/PROD.pem
           ssh-keyscan -H ${{ secrets.PROD_BASTION_IP }} >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/PROD.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.PROD_BASTION_IP }} \
+            "ssh-keyscan -H ${{ secrets.PROD_AUTH_JOBS_IP }}" >> ~/.ssh/known_hosts
+
+      - name: Create Ansible inventory
+        run: |
+          cat > /tmp/prod_inventory.ini << EOF
+          [prod_ec2]
+          ${{ secrets.PROD_AUTH_JOBS_IP }} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/PROD.pem ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ProxyCommand="ssh -W %h:%p -i ~/.ssh/PROD.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.PROD_BASTION_IP }}"'
+          EOF
 
       - name: Deploy via Ansible
         run: |
           pip install ansible
           ansible-playbook infra/ansible/deploy-prod.yml \
-            -i "${{ secrets.PROD_BASTION_IP }}," \
-            --private-key ~/.ssh/PROD.pem \
-            -u ubuntu \
+            -i /tmp/prod_inventory.ini \
             -e "jwt_secret=${{ secrets.JWT_SECRET }}" \
             -e "oauth_client_id=${{ secrets.OAUTH_CLIENT_ID }}" \
             -e "oauth_client_secret=${{ secrets.OAUTH_CLIENT_SECRET }}" \
-            -e "pg_password=${{ secrets.PG_PASSWORD }}"
+            -e "pg_password=${{ secrets.PG_PASSWORD }}" \
+            -e "bastion_ip=${{ secrets.PROD_BASTION_IP }}"

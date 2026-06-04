@@ -1,8 +1,14 @@
 ---
-- name: Deploy PROD services via SSH
-  hosts: all
+- name: Deploy PROD services via SSH jump
+  hosts: prod_ec2
   become: yes
   gather_facts: yes
+  vars:
+    ansible_user: ubuntu
+    ansible_ssh_private_key_file: ~/.ssh/PROD.pem
+    ansible_ssh_common_args: >-
+      -o StrictHostKeyChecking=no
+      -o ProxyCommand="ssh -W %h:%p -i ~/.ssh/PROD.pem -o StrictHostKeyChecking=no ubuntu@{{ bastion_ip }}"
   tasks:
     - name: Install dependencies
       apt:
