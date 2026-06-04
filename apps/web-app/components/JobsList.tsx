@@ -12,7 +12,7 @@ type Job = {
   created_at: string;
 };
 
-const JOBS_URL = process.env.NEXT_PUBLIC_JOBS_URL || 'http://localhost:3001';
+const JOBS_URL = '';
 
 export default function JobsList() {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -21,7 +21,7 @@ export default function JobsList() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`${JOBS_URL}/jobs`)
+    fetch(`${JOBS_URL}/api/jobs`)
       .then(r => r.json())
       .then(data => {
         setJobs(data.jobs || []);
