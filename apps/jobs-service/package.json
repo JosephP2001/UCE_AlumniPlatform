@@ -16,7 +16,8 @@
     "express": "^4.18.0",
     "jsonwebtoken": "^9.0.0",
     "pg": "^8.11.0",
-    "redis": "^4.6.0"
+    "redis": "^4.6.0",
+    "winston": "^3.19.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
