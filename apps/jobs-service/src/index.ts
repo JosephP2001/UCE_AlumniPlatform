@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { jobsRouter } from './routes/jobs.routes';
 import { pgPool, redisClient, connectRedis } from './services/db.service';
+import logger from './logger';
 dotenv.config();
 
 const app = express();
@@ -12,6 +13,7 @@ app.use(cors({ origin: process.env.ALLOWED_ORIGINS || '*', credentials: true }))
 app.use(express.json());
 
 app.get('/health', (req, res) => {
+  logger.info('Health check called');
   res.json({ status: 'ok', service: 'jobs-service', timestamp: new Date().toISOString() });
 });
 
@@ -29,17 +31,22 @@ const initDB = async () => {
       created_at TIMESTAMP DEFAULT NOW()
     )
   `);
-  console.log('Database initialized');
+  logger.info('Database initialized');
 };
 
 const start = async () => {
-  await initDB();
-  await connectRedis();
-  app.listen(PORT, () => {
-    console.log(`jobs-service running on port ${PORT}`);
-  });
+  try {
+    await initDB();
+    await connectRedis();
+    app.listen(PORT, () => {
+      logger.info('jobs-service started', { port: PORT, env: process.env.NODE_ENV });
+    });
+  } catch (error) {
+    logger.error('Failed to start jobs-service', { error });
+    process.exit(1);
+  }
 };
 
-start().catch(console.error);
+start();
 
 export default app;

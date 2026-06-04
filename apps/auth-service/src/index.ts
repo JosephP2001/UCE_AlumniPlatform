@@ -3,6 +3,7 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import { authRouter } from './routes/auth.routes';
+import logger from './logger';
 
 dotenv.config();
 
@@ -14,13 +15,14 @@ app.use(express.json());
 app.use(cookieParser());
 
 app.get('/health', (req, res) => {
+  logger.info('Health check called');
   res.json({ status: 'ok', service: 'auth-service', timestamp: new Date().toISOString() });
 });
 
 app.use('/auth', authRouter);
 
 app.listen(PORT, () => {
-  console.log(`auth-service running on port ${PORT}`);
+  logger.info('auth-service started', { port: PORT, env: process.env.NODE_ENV });
 });
 
 export default app;
