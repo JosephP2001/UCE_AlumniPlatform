@@ -50,7 +50,7 @@ describe('AuthController', () => {
       expect(res.status).toHaveBeenCalledWith(400);
     });
 
-    it('should return access token on valid code', async () => {
+    it('should redirect with access token on valid code', async () => {
       const mockGithubUser = {
         id: 123, login: 'testuser', name: 'Test User',
         avatar_url: 'https://avatar.url'
@@ -65,8 +65,8 @@ describe('AuthController', () => {
       const res = mockRes();
       await controller.githubCallback(req, res);
 
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ accessToken: 'mock-jwt-token' })
+      expect(res.redirect).toHaveBeenCalledWith(
+        expect.stringContaining('token=mock-jwt-token')
       );
     });
   });

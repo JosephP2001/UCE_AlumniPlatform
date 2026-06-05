@@ -122,8 +122,9 @@
           -e OAUTH_CLIENT_SECRET="{{ oauth_client_secret }}" \
           -e REDIS_HOST=redis \
           -e REDIS_PORT=6379 \
-          josephp2001/uce-auth-service:qa
-
+          -e FRONTEND_URL=http://{{ ansible_host }} \
+          josephp2001/u
+          
     - name: Run jobs-service container
       shell: |
         docker run -d \
