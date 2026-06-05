@@ -22,7 +22,7 @@
 
     - name: Clean apt cache
       shell: apt-get clean && apt-get update --allow-insecure-repositories || true
-        
+
     - name: Install dependencies
       apt:
         name:
@@ -122,11 +122,17 @@
     - name: Pull jobs-service image
       shell: docker pull josephp2001/uce-jobs-service:latest
 
+    - name: Pull web-app image
+      shell: docker pull josephp2001/uce-web-app:latest
+
     - name: Stop and remove auth-service container
       shell: docker stop auth-service && docker rm auth-service || true
 
     - name: Stop and remove jobs-service container
       shell: docker stop jobs-service && docker rm jobs-service || true
+
+    - name: Stop and remove web-app container
+      shell: docker stop web-app && docker rm web-app || true
 
     - name: Run auth-service container
       shell: |
@@ -134,7 +140,6 @@
           --name auth-service \
           --network uce-network \
           --restart always \
-          -p 3000:3000 \
           -e NODE_ENV=production \
           -e PORT=3000 \
           -e JWT_SECRET="{{ jwt_secret }}" \
@@ -150,7 +155,6 @@
           --name jobs-service \
           --network uce-network \
           --restart always \
-          -p 3001:3001 \
           -e NODE_ENV=production \
           -e PORT=3001 \
           -e PG_HOST=postgres \
@@ -161,6 +165,38 @@
           -e REDIS_HOST=redis \
           -e REDIS_PORT=6379 \
           josephp2001/uce-jobs-service:latest
+
+    - name: Run web-app container
+      shell: |
+        docker run -d \
+          --name web-app \
+          --network uce-network \
+          --restart always \
+          -e NODE_ENV=production \
+          josephp2001/uce-web-app:latest
+
+    # ── NGINX ──────────────────────────────────────────────────
+
+    - name: Copy Nginx config to host
+      copy:
+        src: "{{ playbook_dir }}/../nginx/nginx.conf"
+        dest: /home/ubuntu/nginx.conf
+        mode: '0644'
+
+    - name: Stop and remove nginx container
+      shell: docker stop nginx && docker rm nginx || true
+
+    - name: Run Nginx container
+      shell: |
+        docker run -d \
+          --name nginx \
+          --network uce-network \
+          --restart always \
+          -p 80:80 \
+          -v /home/ubuntu/nginx.conf:/etc/nginx/nginx.conf:ro \
+          nginx:alpine
+
+    # ── VERIFY ─────────────────────────────────────────────────
 
     - name: Verify containers are running
       shell: docker ps
