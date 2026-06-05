@@ -147,7 +147,7 @@
           -e OAUTH_CLIENT_SECRET="{{ oauth_client_secret }}" \
           -e REDIS_HOST=redis \
           -e REDIS_PORT=6379 \
-          -e FRONTEND_URL=http://{{ ansible_host }} \
+          -e "FRONTEND_URL=http://{{ bastion_ip }}" \
           josephp2001/u
           
     - name: Run jobs-service container
