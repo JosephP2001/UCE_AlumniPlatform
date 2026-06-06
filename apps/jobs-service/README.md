@@ -13,15 +13,17 @@ Implements the CQRS (Command Query Responsibility Segregation) pattern:
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/health` | No | Health check |
-| `POST` | `/jobs` | No | Create a new job listing |
+| `POST` | `/jobs` | Bearer (planned) | Create a new job listing |
 | `GET` | `/jobs` | No | Get all jobs (cache-first) |
 | `GET` | `/jobs/:id` | No | Get job by ID (cache-first) |
+
+> **Note:** `POST /jobs` will require JWT authentication in the next iteration. Currently open for development purposes.
 
 ### Example Requests & Responses
 
 **POST /jobs**
 ```bash
-curl -X POST http://localhost:3001/jobs \
+curl -X POST http://localhost/api/jobs \
   -H "Content-Type: application/json" \
   -d '{
     "title": "Software Engineer",
@@ -181,10 +183,21 @@ jobs-service
 
 ---
 
+## Logging
+
+Uses Winston for structured JSON logging:
+
+```json
+{"level":"info","message":"Database initialized","service":"jobs-service","timestamp":"2026-06-05T00:00:00.000Z"}
+{"level":"info","message":"getJobs cache miss — queried PostgreSQL","count":1,"service":"jobs-service","timestamp":"2026-06-05T00:00:00.000Z"}
+{"level":"info","message":"getJobs cache hit","service":"jobs-service","timestamp":"2026-06-05T00:00:00.000Z"}
+```
+
+---
+
 ## CI/CD
 
-Automated via GitHub Actions on push to `QA` branch:
-
 ```
-push to QA → npm test (6/6) → docker build → docker push → ansible deploy
+push to QA → npm test (6/6) → docker build → docker push :qa → ansible deploy QA
+merge to master → npm test (6/6) → docker build → docker push :latest → ansible deploy PROD
 ```

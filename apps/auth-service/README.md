@@ -11,9 +11,9 @@ Handles GitHub OAuth 2.0 login, JWT token issuance, session management, and toke
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/health` | No | Health check |
-| `GET` | `/auth/github` | No | Redirects to GitHub OAuth |
-| `GET` | `/auth/github/callback` | No | GitHub OAuth callback — issues JWT |
-| `POST` | `/auth/refresh` | Cookie | Refreshes access token using refresh token |
+| `GET` | `/auth/github` | No | Redirects to GitHub OAuth authorization page |
+| `GET` | `/auth/github/callback` | No | GitHub OAuth callback — issues JWT and redirects to frontend |
+| `POST` | `/auth/refresh` | Cookie | Refreshes access token using refresh token cookie |
 | `POST` | `/auth/logout` | Cookie | Clears refresh token cookie |
 | `GET` | `/auth/me` | Bearer | Returns authenticated user data |
 
@@ -24,9 +24,39 @@ Handles GitHub OAuth 2.0 login, JWT token issuance, session management, and toke
 { "status": "ok", "service": "auth-service", "timestamp": "2026-06-02T00:00:00.000Z" }
 ```
 
+**GET /auth/github/callback** (success)
+
+Redirects to:
+```
+http://<FRONTEND_URL>/auth/callback?token=<JWT>&user=<encoded_user_json>
+```
+
 **GET /auth/me**
 ```json
-{ "user": { "id": 1, "login": "josephp2001", "role": "alumni" } }
+{
+  "user": {
+    "id": 123,
+    "username": "josephp2001",
+    "name": "Joseph Ponce",
+    "avatar": "https://avatars.githubusercontent.com/u/...",
+    "provider": "github"
+  }
+}
+```
+
+---
+
+## OAuth Flow
+
+```
+1. Client → GET /auth/github
+2. auth-service → redirect → GitHub OAuth (github.com/login/oauth/authorize)
+3. User authorizes → GitHub → GET /auth/github/callback?code=xxx
+4. auth-service exchanges code for GitHub token
+5. auth-service fetches user info from GitHub API
+6. auth-service issues JWT (15min) + refresh token (7d httpOnly cookie)
+7. auth-service → redirect → FRONTEND_URL/auth/callback?token=JWT&user=...
+8. Frontend stores token in sessionStorage and displays user
 ```
 
 ---
@@ -37,11 +67,14 @@ Handles GitHub OAuth 2.0 login, JWT token issuance, session management, and toke
 |----------|-------------|---------|
 | `PORT` | Service port | `3000` |
 | `NODE_ENV` | Environment | `production` |
-| `JWT_SECRET` | Secret for signing JWT tokens | `your-secret` |
-| `OAUTH_CLIENT_ID` | GitHub OAuth App Client ID | `Iv1.abc123` |
-| `OAUTH_CLIENT_SECRET` | GitHub OAuth App Client Secret | `abc123...` |
+| `JWT_SECRET` | Secret for signing JWT tokens | injected via Ansible |
+| `OAUTH_CLIENT_ID` | GitHub OAuth App Client ID | injected via Ansible |
+| `OAUTH_CLIENT_SECRET` | GitHub OAuth App Client Secret | injected via Ansible |
 | `REDIS_HOST` | Redis container hostname | `redis` |
 | `REDIS_PORT` | Redis port | `6379` |
+| `FRONTEND_URL` | Frontend base URL for OAuth redirect | `http://<BASTION_IP>` |
+
+> **Note:** QA and PROD use separate GitHub OAuth Apps with separate credentials injected at deploy time via Ansible.
 
 ---
 
@@ -49,10 +82,10 @@ Handles GitHub OAuth 2.0 login, JWT token issuance, session management, and toke
 
 | Token | Expiry | Storage |
 |-------|--------|---------|
-| Access Token (JWT) | 15 minutes | Bearer header |
-| Refresh Token | 7 days | httpOnly cookie |
+| Access Token (JWT) | 15 minutes | URL param → sessionStorage (frontend) |
+| Refresh Token | 7 days | httpOnly cookie (server-side) |
 
-Refresh tokens are stored in Redis with TTL. On logout, the key is deleted immediately.
+Refresh tokens are stored in Redis with TTL. On logout, the cookie is cleared.
 
 ---
 
@@ -70,7 +103,7 @@ npm test
 |------|--------|
 | should redirect to GitHub OAuth URL | ✅ |
 | should return 400 if no code provided | ✅ |
-| should return access token on valid code | ✅ |
+| should redirect with access token on valid code | ✅ |
 | should return 401 if no refresh token | ✅ |
 | should return new access token on valid refresh token | ✅ |
 | should clear cookie and return success message | ✅ |
@@ -98,6 +131,7 @@ docker run -d \
   -e OAUTH_CLIENT_SECRET=your-client-secret \
   -e REDIS_HOST=redis \
   -e REDIS_PORT=6379 \
+  -e FRONTEND_URL=http://localhost \
   josephp2001/uce-auth-service:qa
 ```
 
@@ -112,20 +146,33 @@ docker run -d \
 ```
 Client
   └── GET /auth/github
-        └── GitHub OAuth
-              └── /auth/github/callback
-                    ├── JWTService → access token (15min)
-                    └── Redis → refresh token (7d, httpOnly cookie)
+        └── GitHub OAuth (github.com)
+              └── GET /auth/github/callback?code=xxx
+                    ├── Exchange code → GitHub access token
+                    ├── Fetch user info from GitHub API
+                    ├── Issue JWT access token (15min)
+                    ├── Issue refresh token → Redis (7d TTL, httpOnly cookie)
+                    └── Redirect → FRONTEND_URL/auth/callback?token=JWT&user=...
 ```
 
-**Design principle:** Single Responsibility — this service handles authentication only, no business logic from other domains.
+**Design principle:** Single Responsibility — this service handles authentication only.
+
+---
+
+## Logging
+
+Uses Winston for structured JSON logging:
+
+```json
+{"level":"info","message":"auth-service started","port":"3000","env":"production","service":"auth-service","timestamp":"2026-06-05T00:00:00.000Z"}
+{"level":"info","message":"Health check called","service":"auth-service","timestamp":"2026-06-05T00:00:00.000Z"}
+```
 
 ---
 
 ## CI/CD
 
-Automated via GitHub Actions on push to `QA` branch:
-
 ```
-push to QA → npm test (8/8) → docker build → docker push → ansible deploy
+push to QA → npm test (8/8) → docker build → docker push :qa → ansible deploy QA
+merge to master → npm test (8/8) → docker build → docker push :latest → ansible deploy PROD
 ```
