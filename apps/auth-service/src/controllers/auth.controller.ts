@@ -64,7 +64,10 @@ export class AuthController {
         maxAge: 7 * 24 * 60 * 60 * 1000
       });
 
-      res.json({ accessToken, user: payload });
+      // Redirect to frontend with token
+      
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost';
+      res.redirect(`${frontendUrl}/auth/callback?token=${accessToken}&user=${encodeURIComponent(JSON.stringify(payload))}`);
 
     } catch (error) {
       console.error('GitHub OAuth error:', error);

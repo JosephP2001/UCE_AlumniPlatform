@@ -50,6 +50,13 @@ jobs:
           push: true
           tags: josephp2001/uce-jobs-service:latest
 
+      - name: Build and push web-app
+        uses: docker/build-push-action@v5
+        with:
+          context: ./apps/web-app
+          push: true
+          tags: josephp2001/uce-web-app:latest
+
       - name: Setup SSH keys
         run: |
           mkdir -p ~/.ssh
