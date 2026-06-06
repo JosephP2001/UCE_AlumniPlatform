@@ -78,6 +78,6 @@ jobs:
             --private-key ~/.ssh/QA.pem \
             -u ubuntu \
             -e "jwt_secret=${{ secrets.JWT_SECRET }}" \
-            -e "oauth_client_id=${{ secrets.OAUTH_CLIENT_ID }}" \
-            -e "oauth_client_secret=${{ secrets.OAUTH_CLIENT_SECRET }}" \
+            -e "oauth_client_id=${{ secrets.QA_OAUTH_CLIENT_ID }}" \
+            -e "oauth_client_secret=${{ secrets.QA_OAUTH_CLIENT_SECRET }}" \
             -e "pg_password=${{ secrets.PG_PASSWORD }}"
