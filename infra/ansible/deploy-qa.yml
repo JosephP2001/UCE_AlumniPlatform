@@ -123,7 +123,7 @@
           -e REDIS_HOST=redis \
           -e REDIS_PORT=6379 \
           -e "FRONTEND_URL=http://{{ ansible_host }}" \
-          josephp2001/u
+          josephp2001/uce-auth-service:qa
           
     - name: Run jobs-service container
       shell: |
