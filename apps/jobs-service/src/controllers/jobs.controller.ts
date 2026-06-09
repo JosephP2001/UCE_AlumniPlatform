@@ -8,7 +8,7 @@ export class JobsController {
 
   // COMMAND SIDE — write to PostgreSQL
   createJob = async (req: Request, res: Response): Promise<void> => {
-    const { title, description, company, location, salary } = req.body;
+    const { title, company, description, location, salary, job_type, requirements } = req.body;
 
     if (!title || !company) {
       res.status(400).json({ error: 'title and company are required' });
@@ -17,10 +17,10 @@ export class JobsController {
 
     try {
       const result = await pgPool.query(
-        `INSERT INTO jobs (title, description, company, location, salary, created_at)
-         VALUES ($1, $2, $3, $4, $5, NOW())
+        `INSERT INTO jobs (title, company, description, location, salary, job_type, requirements, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
          RETURNING *`,
-        [title, description, company, location, salary]
+        [title, company, description, location, salary, job_type ?? 'full-time', requirements ?? null]
       );
 
       await redisClient.del('jobs:all');
