@@ -91,15 +91,6 @@
 
     # ── SERVICES ───────────────────────────────────────────────
 
-    - name: Pull auth-service image
-      shell: docker pull josephp2001/uce-auth-service:qa
-
-    - name: Pull jobs-service image
-      shell: docker pull josephp2001/uce-jobs-service:qa
-
-    - name: Pull web-app image
-      shell: docker pull josephp2001/uce-web-app:qa
-
     - name: Stop and remove auth-service container
       shell: docker stop auth-service && docker rm auth-service || true
 
@@ -108,6 +99,18 @@
 
     - name: Stop and remove web-app container
       shell: docker stop web-app && docker rm web-app || true
+
+    - name: Clean up unused Docker images and cache
+      shell: docker image prune -af && docker builder prune -af || true
+
+    - name: Pull auth-service image
+      shell: docker pull josephp2001/uce-auth-service:qa
+
+    - name: Pull jobs-service image
+      shell: docker pull josephp2001/uce-jobs-service:qa
+
+    - name: Pull web-app image
+      shell: docker pull josephp2001/uce-web-app:qa
 
     - name: Run auth-service container
       shell: |
