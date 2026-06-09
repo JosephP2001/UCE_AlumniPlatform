@@ -4,6 +4,22 @@
   become: yes
   gather_facts: yes
   tasks:
+
+    # ── FREE DISK SPACE FIRST ──────────────────────────────────
+
+    - name: Prune unused Docker images, containers, volumes and cache
+      shell: docker system prune -af --volumes || true
+
+    - name: Clean apt cache
+      shell: apt-get clean && rm -rf /var/lib/apt/lists/* || true
+
+    - name: Truncate large log files
+      shell: |
+        find /var/log -type f -name "*.log" -size +10M -exec truncate -s 0 {} \; || true
+        journalctl --vacuum-size=50M || true
+
+    # ── INSTALL & SETUP ────────────────────────────────────────
+
     - name: Install dependencies
       apt:
         name:
@@ -100,9 +116,6 @@
     - name: Stop and remove web-app container
       shell: docker stop web-app && docker rm web-app || true
 
-    - name: Clean up unused Docker images and cache
-      shell: docker image prune -af && docker builder prune -af || true
-
     - name: Pull auth-service image
       shell: docker pull josephp2001/uce-auth-service:qa
 
@@ -127,7 +140,7 @@
           -e REDIS_PORT=6379 \
           -e "FRONTEND_URL=http://{{ ansible_host }}" \
           josephp2001/uce-auth-service:qa
-          
+
     - name: Run jobs-service container
       shell: |
         docker run -d \
