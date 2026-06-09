@@ -22,15 +22,25 @@ app.use('/jobs', jobsRouter);
 const initDB = async () => {
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS jobs (
-      id SERIAL PRIMARY KEY,
-      title VARCHAR(255) NOT NULL,
-      company VARCHAR(255) NOT NULL,
-      description TEXT,
-      location VARCHAR(255),
-      salary VARCHAR(100),
-      created_at TIMESTAMP DEFAULT NOW()
+      id           SERIAL PRIMARY KEY,
+      title        VARCHAR(255) NOT NULL,
+      company      VARCHAR(255) NOT NULL,
+      description  TEXT,
+      location     VARCHAR(255),
+      salary       VARCHAR(100),
+      job_type     VARCHAR(50) DEFAULT 'full-time',
+      requirements TEXT,
+      created_at   TIMESTAMP DEFAULT NOW()
     )
   `);
+
+  // Non-destructive migrations: add columns if upgrading from older schema
+  await pgPool.query(`
+    ALTER TABLE jobs
+      ADD COLUMN IF NOT EXISTS job_type     VARCHAR(50) DEFAULT 'full-time',
+      ADD COLUMN IF NOT EXISTS requirements TEXT
+  `);
+
   logger.info('Database initialized');
 };
 
