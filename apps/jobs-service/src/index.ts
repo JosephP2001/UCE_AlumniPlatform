@@ -1,8 +1,9 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import rateLimit from 'express-rate-limit';
 import swaggerUi from 'swagger-ui-express';
+import jwt from 'jsonwebtoken';
 import { jobsRouter } from './routes/jobs.routes';
 import { pgPool, redisClient, connectRedis } from './services/db.service';
 import logger from './logger';
@@ -23,7 +24,7 @@ app.use(cors({
 
 // ── RATE LIMITING ─────────────────────────────────────────
 const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 15 * 60 * 1000,
   max: 200,
   standardHeaders: true,
   legacyHeaders: false,
@@ -32,7 +33,7 @@ const globalLimiter = rateLimit({
 
 const writeLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 30, // stricter for write operations
+  max: 30,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many write requests, please try again later.' },
@@ -40,6 +41,23 @@ const writeLimiter = rateLimit({
 
 app.use(globalLimiter);
 app.use(express.json());
+
+// ── JWT MIDDLEWARE ────────────────────────────────────────
+const requireAuth = (req: Request, res: Response, next: NextFunction): void => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Authorization token required' });
+    return;
+  }
+  try {
+    const token = authHeader.split(' ')[1];
+    const payload = jwt.verify(token, process.env.JWT_SECRET!);
+    (req as any).user = payload;
+    next();
+  } catch {
+    res.status(401).json({ error: 'Invalid or expired token' });
+  }
+};
 
 // ── SWAGGER ───────────────────────────────────────────────
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
@@ -51,9 +69,16 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'jobs-service', timestamp: new Date().toISOString() });
 });
 
-// POST /jobs has stricter rate limit
+// ── ROUTES ────────────────────────────────────────────────
+// GET /jobs — public, global rate limit only
+// POST /jobs — requires JWT + stricter rate limit
 app.use('/jobs', (req, res, next) => {
   if (req.method === 'POST') return writeLimiter(req, res, next);
+  next();
+});
+
+app.use('/jobs', (req, res, next) => {
+  if (req.method === 'POST') return requireAuth(req, res, next);
   next();
 });
 
