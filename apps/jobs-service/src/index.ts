@@ -1,24 +1,65 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import rateLimit from 'express-rate-limit';
+import swaggerUi from 'swagger-ui-express';
 import { jobsRouter } from './routes/jobs.routes';
 import { pgPool, redisClient, connectRedis } from './services/db.service';
 import logger from './logger';
+import { swaggerSpec } from './swagger';
+
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors({ origin: process.env.ALLOWED_ORIGINS || '*', credentials: true }));
+// ── CORS ──────────────────────────────────────────────────
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
+  credentials: true,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+
+// ── RATE LIMITING ─────────────────────────────────────────
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+
+const writeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30, // stricter for write operations
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many write requests, please try again later.' },
+});
+
+app.use(globalLimiter);
 app.use(express.json());
 
+// ── SWAGGER ───────────────────────────────────────────────
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.get('/api-docs.json', (req, res) => res.json(swaggerSpec));
+
+// ── HEALTH ────────────────────────────────────────────────
 app.get('/health', (req, res) => {
   logger.info('Health check called');
   res.json({ status: 'ok', service: 'jobs-service', timestamp: new Date().toISOString() });
 });
 
+// POST /jobs has stricter rate limit
+app.use('/jobs', (req, res, next) => {
+  if (req.method === 'POST') return writeLimiter(req, res, next);
+  next();
+});
+
 app.use('/jobs', jobsRouter);
 
+// ── DB INIT ───────────────────────────────────────────────
 const initDB = async () => {
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS jobs (
@@ -33,14 +74,11 @@ const initDB = async () => {
       created_at   TIMESTAMP DEFAULT NOW()
     )
   `);
-
-  // Non-destructive migrations: add columns if upgrading from older schema
   await pgPool.query(`
     ALTER TABLE jobs
       ADD COLUMN IF NOT EXISTS job_type     VARCHAR(50) DEFAULT 'full-time',
       ADD COLUMN IF NOT EXISTS requirements TEXT
   `);
-
   logger.info('Database initialized');
 };
 

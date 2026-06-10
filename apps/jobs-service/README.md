@@ -1,140 +1,111 @@
-# jobs-service
+# web-app
 
-Job listings microservice for the UCE Alumni & Employment Platform.
+Frontend for the UCE Alumni & Employment Platform.
 
-Implements the CQRS (Command Query Responsibility Segregation) pattern:
-- **Write** operations persist to PostgreSQL
-- **Read** operations are served from Redis cache-first with automatic PostgreSQL fallback
+Built with Next.js 16 + React 19 + Tailwind CSS 4. Consumes auth-service and jobs-service via Nginx reverse proxy.
 
 ---
 
-## Endpoints
+## Pages
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `GET` | `/health` | No | Health check |
-| `POST` | `/jobs` | Bearer (planned) | Create a new job listing |
-| `GET` | `/jobs` | No | Get all jobs (cache-first) |
-| `GET` | `/jobs/:id` | No | Get job by ID (cache-first) |
+| Route | Description |
+|-------|-------------|
+| `/` | Dashboard — service status, job listings, user session |
+| `/auth/login` | Login page — GitHub OAuth entry point |
+| `/auth/callback` | OAuth callback — captures JWT from URL, stores in sessionStorage |
+| `/jobs/new` | Post a job — accessible only to users with `role: company` |
 
-> **Note:** `POST /jobs` will require JWT authentication in the next iteration. Currently open for development purposes.
+---
 
-### Example Requests & Responses
+## Components
 
-**POST /jobs**
-```bash
-curl -X POST http://localhost/api/jobs \
-  -H "Content-Type: application/json" \
-  -d '{
-    "title": "Software Engineer",
-    "company": "UCE",
-    "description": "Backend developer",
-    "location": "Quito",
-    "salary": "$3000"
-  }'
+| Component | Description |
+|-----------|-------------|
+| `ServiceStatus` | Polls `/api/auth/health` and `/api/jobs/health` — displays green/red dot per service |
+| `JobsList` | Fetches `/api/jobs` — lists job cards with job type badge, requirements, and cache/database source indicator |
+
+---
+
+## Authentication Flow
+
 ```
-```json
-{
-  "job": {
-    "id": 1,
-    "title": "Software Engineer",
-    "company": "UCE",
-    "description": "Backend developer",
-    "location": "Quito",
-    "salary": "$3000",
-    "created_at": "2026-06-02T00:00:00.000Z"
-  }
-}
+1. User visits / → no session → redirected to /auth/login
+2. User clicks "Continue with GitHub"
+3. Browser → GET /api/auth/github → auth-service redirects to GitHub
+4. User authorizes → GitHub → GET /api/auth/github/callback
+5. auth-service issues JWT → redirects to /auth/callback?token=JWT&user=...
+6. /auth/callback stores token + user in sessionStorage → redirects to /
+7. Dashboard shows role picker modal (student / company) on first login
+8. Role stored in sessionStorage alongside user data
 ```
 
-**GET /jobs** (first call — cache miss)
-```json
-{ "jobs": [...], "source": "database" }
-```
+Token storage: `sessionStorage` (cleared on tab close). Refresh token handled server-side via httpOnly cookie.
 
-**GET /jobs** (subsequent call — cache hit)
-```json
-{ "jobs": [...], "source": "cache" }
-```
+---
 
-**GET /health**
-```json
-{ "status": "ok", "service": "jobs-service", "timestamp": "2026-06-02T00:00:00.000Z" }
-```
+## Role System
+
+Roles are assigned client-side after OAuth login and stored in `sessionStorage`. Backend role enforcement is planned for the next iteration.
+
+| Role | Access |
+|------|--------|
+| `student` | Browse job listings |
+| `company` | Browse listings + post new jobs (`/jobs/new`) |
+
+The dashboard shows a role picker modal on first login. Users can change their role at any time via the navbar.
+
+---
+
+## API Routes (via Nginx)
+
+All API calls use relative URLs — Nginx routes them internally:
+
+| Frontend Call | Nginx routes to |
+|--------------|-----------------|
+| `GET /api/auth/health` | auth-service:3000/health |
+| `GET /api/auth/github` | auth-service:3000/auth/github |
+| `GET /api/jobs/health` | jobs-service:3001/health |
+| `GET /api/jobs` | jobs-service:3001/jobs |
+| `POST /api/jobs` | jobs-service:3001/jobs |
 
 ---
 
 ## Environment Variables
 
-| Variable | Description | Example |
+| Variable | Description | Default |
 |----------|-------------|---------|
-| `PORT` | Service port | `3001` |
-| `NODE_ENV` | Environment | `production` |
-| `PG_HOST` | PostgreSQL container hostname | `postgres` |
-| `PG_PORT` | PostgreSQL port | `5432` |
-| `PG_DATABASE` | Database name | `jobs_db` |
-| `PG_USER` | PostgreSQL user | `postgres` |
-| `PG_PASSWORD` | PostgreSQL password | injected via Ansible |
-| `REDIS_HOST` | Redis container hostname | `redis` |
-| `REDIS_PORT` | Redis port | `6379` |
+| `NEXT_PUBLIC_AUTH_URL` | Auth service base URL (build-time) | `''` (relative) |
+| `NEXT_PUBLIC_JOBS_URL` | Jobs service base URL (build-time) | `''` (relative) |
+
+> All URLs are relative in production — Nginx handles routing. Variables are only needed for local development pointing directly to service ports.
 
 ---
 
-## Database Schema
-
-Auto-migrated on service startup via `CREATE TABLE IF NOT EXISTS`:
-
-```sql
-CREATE TABLE IF NOT EXISTS jobs (
-  id          SERIAL PRIMARY KEY,
-  title       VARCHAR(255) NOT NULL,
-  company     VARCHAR(255) NOT NULL,
-  description TEXT,
-  location    VARCHAR(255),
-  salary      VARCHAR(100),
-  created_at  TIMESTAMP DEFAULT NOW()
-);
-```
-
----
-
-## CQRS Pattern
-
-```
-POST /jobs  ──► CreateJobCommandHandler ──► PostgreSQL (write)
-                                        └── Redis INVALIDATE jobs:all
-
-GET /jobs   ──► GetJobsQueryHandler ──► Redis GET jobs:all
-                                    └── (cache miss) PostgreSQL SELECT *
-                                                   └── Redis SETEX jobs:all 60
-
-GET /jobs/:id ► GetJobByIdQueryHandler ──► Redis GET jobs:{id}
-                                       └── (cache miss) PostgreSQL SELECT WHERE id=$1
-                                                      └── Redis SETEX jobs:{id} 60
-```
-
-**Cache TTL:** 60 seconds. Invalidated on every write.
-
----
-
-## Unit Tests
+## Local Development
 
 ```bash
-cd apps/jobs-service
+cd apps/web-app
 npm install
-npm test
+npm run dev
 ```
 
-**Results:** 6/6 passing
+Open `http://localhost:3000`.
 
-| Test | Status |
-|------|--------|
-| should return 400 if title or company is missing | ✅ |
-| should create a job and return 201 | ✅ |
-| should return cached jobs if cache hit | ✅ |
-| should query PostgreSQL on cache miss | ✅ |
-| should return 404 if job not found | ✅ |
-| should return job from database on cache miss | ✅ |
+```bash
+# .env.local
+NEXT_PUBLIC_AUTH_URL=http://localhost:3000
+NEXT_PUBLIC_JOBS_URL=http://localhost:3001
+```
+
+---
+
+## Build
+
+```bash
+npm run build
+```
+
+Uses `output: "standalone"` for Docker deployment.
 
 ---
 
@@ -142,55 +113,36 @@ npm test
 
 **Build:**
 ```bash
-docker build -t josephp2001/uce-jobs-service:qa ./apps/jobs-service
+docker build \
+  --build-arg NEXT_PUBLIC_AUTH_URL='' \
+  --build-arg NEXT_PUBLIC_JOBS_URL='' \
+  -t josephp2001/uce-web-app:qa \
+  ./apps/web-app
 ```
 
-**Run locally** (requires postgres and redis containers on uce-network):
+**Run** (behind Nginx on uce-network):
 ```bash
 docker run -d \
-  --name jobs-service \
+  --name web-app \
   --network uce-network \
-  -p 3001:3001 \
-  -e PORT=3001 \
-  -e PG_HOST=postgres \
-  -e PG_PORT=5432 \
-  -e PG_DATABASE=jobs_db \
-  -e PG_USER=postgres \
-  -e PG_PASSWORD=your-password \
-  -e REDIS_HOST=redis \
-  -e REDIS_PORT=6379 \
-  josephp2001/uce-jobs-service:qa
+  -e NODE_ENV=production \
+  josephp2001/uce-web-app:qa
 ```
 
 **Docker Hub images:**
-- QA: `josephp2001/uce-jobs-service:qa`
-- PROD: `josephp2001/uce-jobs-service:latest`
+- QA: `josephp2001/uce-web-app:qa`
+- PROD: `josephp2001/uce-web-app:latest`
 
 ---
 
 ## Architecture
 
 ```
-jobs-service
-├── COMMAND SIDE (Write)
-│   └── POST /jobs → PostgreSQL jobs_db → invalidate Redis cache
-└── QUERY SIDE (Read)
-    ├── GET /jobs → Redis cache (60s TTL) → fallback PostgreSQL
-    └── GET /jobs/:id → Redis cache (60s TTL) → fallback PostgreSQL
-```
-
-**Design principle:** CQRS + Interface Segregation — read and write interfaces are fully separated, allowing independent scaling of each path.
-
----
-
-## Logging
-
-Uses Winston for structured JSON logging:
-
-```json
-{"level":"info","message":"Database initialized","service":"jobs-service","timestamp":"2026-06-05T00:00:00.000Z"}
-{"level":"info","message":"getJobs cache miss — queried PostgreSQL","count":1,"service":"jobs-service","timestamp":"2026-06-05T00:00:00.000Z"}
-{"level":"info","message":"getJobs cache hit","service":"jobs-service","timestamp":"2026-06-05T00:00:00.000Z"}
+Browser
+  └── http://<IP>:80 (Nginx)
+        ├── /api/auth/* → auth-service:3000
+        ├── /api/jobs/* → jobs-service:3001
+        └── /*          → web-app:3002 (Next.js)
 ```
 
 ---
@@ -198,6 +150,6 @@ Uses Winston for structured JSON logging:
 ## CI/CD
 
 ```
-push to QA → npm test (6/6) → docker build → docker push :qa → ansible deploy QA
-merge to master → npm test (6/6) → docker build → docker push :latest → ansible deploy PROD
+push to QA → docker build → docker push :qa → ansible deploy QA (port 3002, behind Nginx)
+merge to master → docker build → docker push :latest → ansible deploy PROD
 ```
