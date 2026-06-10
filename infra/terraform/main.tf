@@ -192,6 +192,13 @@ resource "aws_instance" "bastion" {
   vpc_security_group_ids = [aws_security_group.sg_bastion.id]
   tags                   = { Name = "uce-qa-bastion" }
 }
+resource "aws_eip" "bastion_eip" {              # ELASTIC BASTION
+  instance   = aws_instance.bastion.id
+  domain     = "vpc"
+  depends_on = [aws_internet_gateway.igw]
+  tags       = { Name = "uce-qa-bastion-eip" }
+}
+
 
 # ─────────────────────────────────────────
 # EC2 — QA Auth + Jobs service
@@ -234,8 +241,8 @@ resource "aws_instance" "qa_auth_jobs" {
 # OUTPUTS
 # ─────────────────────────────────────────
 output "bastion_public_ip" {
-  description = "QA Bastion public IP — update QA_BASTION_IP in GitHub Secrets each session"
-  value       = aws_instance.bastion.public_ip
+  description = "QA Bastion EIP — fixed across sessions"   # NO NEED TO UPDATE BASTION
+  value       = aws_eip.bastion_eip.public_ip
 }
 
 output "qa_auth_jobs_private_ip" {
