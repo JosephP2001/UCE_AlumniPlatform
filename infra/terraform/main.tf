@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────
-# TERRAFORM BACKEND — S3 remote state
+# TERRAFORM BACKEND — S3 remote state QA
 # ─────────────────────────────────────────
 terraform {
   required_version = ">= 1.5.0"
@@ -10,9 +10,11 @@ terraform {
     }
   }
   backend "s3" {
-    bucket = "uce-alumni-tfstate-qa"
-    key    = "qa/terraform.tfstate"
-    region = "us-east-1"
+    bucket       = "uce-alumni-tfstate-qa"
+    key          = "qa/terraform.tfstate"
+    region       = "us-east-1"
+    use_lockfile = true
+    encrypt      = true
   }
 }
 
@@ -71,16 +73,18 @@ resource "aws_route_table_association" "public_1a" {
 }
 
 # ─────────────────────────────────────────
-# NAT GATEWAY  <------------JSUTO FOR TESTTING
+# NAT GATEWAY
 # ─────────────────────────────────────────
 resource "aws_eip" "nat" {
-  domain = "vpc"
+  domain     = "vpc"
+  tags       = { Name = "uce-qa-nat-eip" }
 }
 
 resource "aws_nat_gateway" "nat" {
   allocation_id = aws_eip.nat.id
   subnet_id     = aws_subnet.public_1a.id
-  tags = { Name = "uce-qa-nat" }
+  depends_on    = [aws_internet_gateway.igw]
+  tags          = { Name = "uce-qa-nat" }
 }
 
 resource "aws_route_table" "private" {
@@ -97,7 +101,6 @@ resource "aws_route_table_association" "private_1a" {
   route_table_id = aws_route_table.private.id
 }
 
-
 # ─────────────────────────────────────────
 # SECURITY GROUPS
 # ─────────────────────────────────────────
@@ -113,14 +116,14 @@ resource "aws_security_group" "sg_bastion" {
     cidr_blocks = ["0.0.0.0/0"]
   }
   ingress {
-    from_port   = 3002
-    to_port     = 3002
+    from_port   = 80
+    to_port     = 80
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
   ingress {
-    from_port   = 80
-    to_port     = 80
+    from_port   = 3002
+    to_port     = 3002
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -167,25 +170,35 @@ data "aws_key_pair" "qa_key" {
 }
 
 # ─────────────────────────────────────────
-# BASTION HOST
+# AMI — Ubuntu 24.04
 # ─────────────────────────────────────────
 data "aws_ami" "ubuntu" {
   most_recent = true
   owners      = ["099720109477"]
   filter {
     name   = "name"
-    values = ["ubuntu/images/hvm-ssd*ubuntu*26.04*amd64*"]
+    values = ["ubuntu/images/hvm-ssd*ubuntu*24.04*amd64*"]
   }
 }
 
+# ─────────────────────────────────────────
+# BASTION HOST
+# ─────────────────────────────────────────
 resource "aws_instance" "bastion" {
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = "t3.micro"
   subnet_id              = aws_subnet.public_1a.id
   key_name               = data.aws_key_pair.qa_key.key_name
   vpc_security_group_ids = [aws_security_group.sg_bastion.id]
-  tags = { Name = "uce-qa-bastion" }
+  tags                   = { Name = "uce-qa-bastion" }
 }
+resource "aws_eip" "bastion_eip" {              # ELASTIC BASTION
+  instance   = aws_instance.bastion.id
+  domain     = "vpc"
+  depends_on = [aws_internet_gateway.igw]
+  tags       = { Name = "uce-qa-bastion-eip" }
+}
+
 
 # ─────────────────────────────────────────
 # EC2 — QA Auth + Jobs service
@@ -200,11 +213,11 @@ resource "aws_instance" "qa_auth_jobs" {
   user_data = <<-EOF
     #!/bin/bash
     apt update -y
-    apt install -y ca-certificates curl gnupg git
+    apt install -y ca-certificates curl gnupg git apt-transport-https
     install -m 0755 -d /etc/apt/keyrings
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
     chmod a+r /etc/apt/keyrings/docker.gpg
-    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable"
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
     apt update -y
     apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
     systemctl enable docker
@@ -217,6 +230,10 @@ resource "aws_instance" "qa_auth_jobs" {
     volume_type = "gp3"
   }
 
+  lifecycle {
+    ignore_changes = [user_data, ami]
+  }
+
   tags = { Name = "uce-qa-ec2-auth-jobs" }
 }
 
@@ -224,7 +241,8 @@ resource "aws_instance" "qa_auth_jobs" {
 # OUTPUTS
 # ─────────────────────────────────────────
 output "bastion_public_ip" {
-  value = aws_instance.bastion.public_ip
+  description = "QA Bastion EIP — fixed across sessions"   # NO NEED TO UPDATE BASTION
+  value       = aws_eip.bastion_eip.public_ip
 }
 
 output "qa_auth_jobs_private_ip" {

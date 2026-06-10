@@ -10,6 +10,20 @@
       -o StrictHostKeyChecking=no
       -o ProxyCommand="ssh -W %h:%p -i ~/.ssh/PROD.pem -o StrictHostKeyChecking=no ubuntu@{{ bastion_ip }}"
   tasks:
+
+    # ── FREE DISK SPACE FIRST ──────────────────────────────
+    - name: Prune unused Docker images, containers, volumes and cache
+      shell: docker system prune -af --volumes || true
+
+    - name: Clean apt cache
+      shell: apt-get clean && rm -rf /var/lib/apt/lists/* || true
+
+    - name: Truncate large log files
+      shell: |
+        find /var/log -type f -name "*.log" -size +10M -exec truncate -s 0 {} \; || true
+        journalctl --vacuum-size=50M || true
+
+    # ── DOCKER SETUP ───────────────────────────────────────
     - name: Remove broken Docker repository
       file:
         path: /etc/apt/sources.list.d/docker.list
@@ -77,8 +91,7 @@
     - name: Create Docker network
       shell: docker network create uce-network || true
 
-    # ── DATABASES ──────────────────────────────────────────────
-
+    # ── DATABASES ──────────────────────────────────────────
     - name: Stop and remove postgres container
       shell: docker stop postgres && docker rm postgres || true
 
@@ -114,7 +127,15 @@
         done
         exit 1
 
-    # ── SERVICES ───────────────────────────────────────────────
+    # ── SERVICES ───────────────────────────────────────────
+    - name: Stop and remove auth-service container
+      shell: docker stop auth-service && docker rm auth-service || true
+
+    - name: Stop and remove jobs-service container
+      shell: docker stop jobs-service && docker rm jobs-service || true
+
+    - name: Stop and remove web-app container
+      shell: docker stop web-app && docker rm web-app || true
 
     - name: Pull auth-service image
       shell: docker pull josephp2001/uce-auth-service:latest
@@ -124,15 +145,6 @@
 
     - name: Pull web-app image
       shell: docker pull josephp2001/uce-web-app:latest
-
-    - name: Stop and remove auth-service container
-      shell: docker stop auth-service && docker rm auth-service || true
-
-    - name: Stop and remove jobs-service container
-      shell: docker stop jobs-service && docker rm jobs-service || true
-
-    - name: Stop and remove web-app container
-      shell: docker stop web-app && docker rm web-app || true
 
     - name: Run auth-service container
       shell: |
@@ -147,9 +159,9 @@
           -e OAUTH_CLIENT_SECRET="{{ oauth_client_secret }}" \
           -e REDIS_HOST=redis \
           -e REDIS_PORT=6379 \
-          -e "FRONTEND_URL=http://{{ ansible_host }}" \
-          josephp2001/uce-auth-service:qa
-          
+          -e FRONTEND_URL=http://josheponcepro1.distribuidauce.org \
+          josephp2001/uce-auth-service:latest
+
     - name: Run jobs-service container
       shell: |
         docker run -d \
@@ -176,8 +188,7 @@
           -e NODE_ENV=production \
           josephp2001/uce-web-app:latest
 
-    # ── NGINX ──────────────────────────────────────────────────
-
+    # ── NGINX ──────────────────────────────────────────────
     - name: Copy Nginx config to host
       copy:
         src: "{{ playbook_dir }}/../nginx/nginx.conf"
@@ -197,8 +208,7 @@
           -v /home/ubuntu/nginx.conf:/etc/nginx/nginx.conf:ro \
           nginx:alpine
 
-    # ── VERIFY ─────────────────────────────────────────────────
-
+    # ── VERIFY ─────────────────────────────────────────────
     - name: Verify containers are running
       shell: docker ps
       register: docker_ps
