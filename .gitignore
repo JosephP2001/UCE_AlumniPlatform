@@ -54,4 +54,7 @@ infra/terraform/prod/PROD.pub
 aws
 dir
 .postman/
-postman/
+postman/ 
+# Claude Code 
+AGENTS.md 
+CLAUDE.md 
