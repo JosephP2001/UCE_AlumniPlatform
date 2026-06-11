@@ -64,8 +64,8 @@ jobs:
           push: true
           tags: josephp2001/uce-web-app:qa
           build-args: |
-            NEXT_PUBLIC_AUTH_URL=http://${{ secrets.QA_BASTION_IP }}:3000
-            NEXT_PUBLIC_JOBS_URL=http://${{ secrets.QA_BASTION_IP }}:3001
+            NEXT_PUBLIC_AUTH_URL=http://${{ secrets.QA_BASTION_IP }}
+            NEXT_PUBLIC_JOBS_URL=http://${{ secrets.QA_BASTION_IP }}
 
       - name: Setup SSH key
         run: |
