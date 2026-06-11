@@ -11,7 +11,8 @@
       -o ProxyCommand="ssh -W %h:%p -i ~/.ssh/PROD.pem -o StrictHostKeyChecking=no ubuntu@{{ bastion_ip }}"
   tasks:
 
-    # ── FREE DISK SPACE FIRST ──────────────────────────────
+    # ── FREE DISK SPACE FIRST ──────────────────────────────────
+
     - name: Prune unused Docker images, containers, volumes and cache
       shell: docker system prune -af --volumes || true
 
@@ -23,7 +24,8 @@
         find /var/log -type f -name "*.log" -size +10M -exec truncate -s 0 {} \; || true
         journalctl --vacuum-size=50M || true
 
-    # ── DOCKER SETUP ───────────────────────────────────────
+    # ── DOCKER SETUP ───────────────────────────────────────────
+
     - name: Remove broken Docker repository
       file:
         path: /etc/apt/sources.list.d/docker.list
@@ -91,7 +93,8 @@
     - name: Create Docker network
       shell: docker network create uce-network || true
 
-    # ── DATABASES ──────────────────────────────────────────
+    # ── DATABASES ──────────────────────────────────────────────
+
     - name: Stop and remove postgres container
       shell: docker stop postgres && docker rm postgres || true
 
@@ -127,12 +130,16 @@
         done
         exit 1
 
-    # ── SERVICES ───────────────────────────────────────────
+    # ── SERVICES ───────────────────────────────────────────────
+
     - name: Stop and remove auth-service container
       shell: docker stop auth-service && docker rm auth-service || true
 
     - name: Stop and remove jobs-service container
       shell: docker stop jobs-service && docker rm jobs-service || true
+
+    - name: Stop and remove profile-service container
+      shell: docker stop profile-service && docker rm profile-service || true
 
     - name: Stop and remove web-app container
       shell: docker stop web-app && docker rm web-app || true
@@ -142,6 +149,9 @@
 
     - name: Pull jobs-service image
       shell: docker pull josephp2001/uce-jobs-service:latest
+
+    - name: Pull profile-service image
+      shell: docker pull josephp2001/uce-profile-service:latest
 
     - name: Pull web-app image
       shell: docker pull josephp2001/uce-web-app:latest
@@ -177,7 +187,24 @@
           -e PG_PASSWORD="{{ pg_password }}" \
           -e REDIS_HOST=redis \
           -e REDIS_PORT=6379 \
+          -e JWT_SECRET="{{ jwt_secret }}" \
           josephp2001/uce-jobs-service:latest
+
+    - name: Run profile-service container
+      shell: |
+        docker run -d \
+          --name profile-service \
+          --network uce-network \
+          --restart always \
+          -e NODE_ENV=production \
+          -e PORT=3002 \
+          -e POSTGRES_HOST=postgres \
+          -e POSTGRES_PORT=5432 \
+          -e POSTGRES_DB=jobs_db \
+          -e POSTGRES_USER=postgres \
+          -e POSTGRES_PASSWORD="{{ pg_password }}" \
+          -e JWT_SECRET="{{ jwt_secret }}" \
+          josephp2001/uce-profile-service:latest
 
     - name: Run web-app container
       shell: |
@@ -188,7 +215,8 @@
           -e NODE_ENV=production \
           josephp2001/uce-web-app:latest
 
-    # ── NGINX ──────────────────────────────────────────────
+    # ── NGINX ──────────────────────────────────────────────────
+
     - name: Copy Nginx config to host
       copy:
         src: "{{ playbook_dir }}/../nginx/nginx.conf"
@@ -208,7 +236,8 @@
           -v /home/ubuntu/nginx.conf:/etc/nginx/nginx.conf:ro \
           nginx:alpine
 
-    # ── VERIFY ─────────────────────────────────────────────
+    # ── VERIFY ─────────────────────────────────────────────────
+
     - name: Verify containers are running
       shell: docker ps
       register: docker_ps
