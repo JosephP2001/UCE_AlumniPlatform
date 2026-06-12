@@ -63,7 +63,6 @@ function DashboardContent() {
     try {
       const parsed: User = JSON.parse(userStr);
       setUser(parsed);
-      // Show role picker if role not yet assigned
       if (!parsed.role) setShowRolePicker(true);
     } catch {
       router.push('/auth/login');
@@ -117,6 +116,13 @@ function DashboardContent() {
               className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
             >
               change role
+            </button>
+            {/* Profile link */}
+            <button
+              onClick={() => router.push('/profile')}
+              className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              my profile
             </button>
             <div className="flex items-center gap-2">
               {user.avatar && (
@@ -197,14 +203,24 @@ function DashboardContent() {
                 : 'Explore job opportunities from companies hiring UCE alumni.'}
             </p>
           </div>
-          {user.role === 'company' && (
-            <a
-              href="/jobs/new"
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors shrink-0"
-            >
-              + Post job
-            </a>
-          )}
+          <div className="flex gap-2">
+            {user.role === 'student' && (
+              <a
+                href="/profile"
+                className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium rounded-lg transition-colors"
+              >
+                My profile
+              </a>
+            )}
+            {user.role === 'company' && (
+              <a
+                href="/jobs/new"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                + Post job
+              </a>
+            )}
+          </div>
         </div>
 
         {/* Service Status */}

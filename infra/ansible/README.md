@@ -19,9 +19,9 @@ GitHub Actions
                     ├── docker stop/rm postgres  → docker run postgres
                     ├── docker stop/rm redis     → docker run redis
                     ├── Wait for PostgreSQL to be ready
-                    ├── docker stop/rm auth-service, jobs-service, web-app
-                    ├── docker pull auth-service, jobs-service, web-app
-                    ├── docker run auth-service, jobs-service, web-app
+                    ├── docker stop/rm auth-service, jobs-service, profile-service, web-app
+                    ├── docker pull auth-service, jobs-service, profile-service, web-app
+                    ├── docker run auth-service, jobs-service, profile-service, web-app
                     ├── Copy nginx.conf → docker run nginx
                     └── docker ps (verify all containers running)
 ```
@@ -38,7 +38,7 @@ GitHub Secrets → GitHub Actions → Ansible -e vars → Docker -e ENV_VAR
 
 ### deploy-qa.yml — QA Environment
 
-**Target:** QA Bastion (`QA_BASTION_IP`)
+**Target:** QA Bastion (`52.20.54.196` — Elastic IP, fixed)
 **Docker image tags:** `:qa`
 **Triggered by:** Push to `QA` branch via GitHub Actions
 
@@ -48,13 +48,14 @@ GitHub Secrets → GitHub Actions → Ansible -e vars → Docker -e ENV_VAR
 | redis | redis:7-alpine | 6379 (internal) | uce-network |
 | auth-service | josephp2001/uce-auth-service:qa | 3000 | uce-network |
 | jobs-service | josephp2001/uce-jobs-service:qa | 3001 | uce-network |
+| profile-service | josephp2001/uce-profile-service:qa | 3003 | uce-network |
 | web-app | josephp2001/uce-web-app:qa | 3002 | uce-network |
 | nginx | nginx:alpine | 80 (public) | uce-network |
 
 **Run manually:**
 ```bash
 ansible-playbook infra/ansible/deploy-qa.yml \
-  -i "QA_BASTION_IP," \
+  -i "52.20.54.196," \
   --private-key ~/.ssh/QA.pem \
   -u ubuntu \
   -e "jwt_secret=YOUR_SECRET" \
@@ -77,6 +78,7 @@ ansible-playbook infra/ansible/deploy-qa.yml \
 | redis | redis:7-alpine | 6379 (internal) | uce-network |
 | auth-service | josephp2001/uce-auth-service:latest | 3000 | uce-network |
 | jobs-service | josephp2001/uce-jobs-service:latest | 3001 | uce-network |
+| profile-service | josephp2001/uce-profile-service:latest | 3003 | uce-network |
 | web-app | josephp2001/uce-web-app:latest | 3002 | uce-network |
 | nginx | nginx:alpine | 80 (public) | uce-network |
 
@@ -117,8 +119,10 @@ All services share a Docker bridge network called `uce-network`. Containers reac
 | auth-service | Redis | `redis` |
 | jobs-service | Redis | `redis` |
 | jobs-service | PostgreSQL | `postgres` |
+| profile-service | PostgreSQL | `postgres` |
 | nginx | auth-service | `auth-service` |
 | nginx | jobs-service | `jobs-service` |
+| nginx | profile-service | `profile-service` |
 | nginx | web-app | `web-app` |
 
 No database ports are exposed to the host. Only port `80` (nginx) is public.
@@ -139,15 +143,16 @@ No database ports are exposed to the host. Only port `80` (nginx) is public.
 Secrets are passed as Ansible extra vars and injected as Docker environment variables at container start:
 
 ```yaml
-- name: Run jobs-service container
+- name: Run profile-service container
   shell: |
     docker run -d \
-      --name jobs-service \
+      --name profile-service \
       --network uce-network \
-      -e PG_HOST=postgres \
-      -e PG_PASSWORD="{{ pg_password }}" \
-      -e REDIS_HOST=redis \
-      josephp2001/uce-jobs-service:qa
+      -e PORT=3003 \
+      -e POSTGRES_HOST=postgres \
+      -e POSTGRES_PASSWORD="{{ pg_password }}" \
+      -e JWT_SECRET="{{ jwt_secret }}" \
+      josephp2001/uce-profile-service:qa
 ```
 
 The `{{ pg_password }}` is replaced by Ansible at runtime with the value passed via `-e "pg_password=..."` from GitHub Actions — which reads it from GitHub Secrets.
