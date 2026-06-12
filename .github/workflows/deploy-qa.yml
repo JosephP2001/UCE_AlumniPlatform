@@ -66,6 +66,7 @@ jobs:
           build-args: |
             NEXT_PUBLIC_AUTH_URL=http://${{ secrets.QA_BASTION_IP }}
             NEXT_PUBLIC_JOBS_URL=http://${{ secrets.QA_BASTION_IP }}
+            NEXT_PUBLIC_PROFILE_URL=http://${{ secrets.QA_BASTION_IP }}
 
       - name: Setup SSH key
         run: |
