@@ -172,7 +172,7 @@
           --network uce-network \
           --restart always \
           -e NODE_ENV=production \
-          -e PORT=3002 \
+          -e PORT=3003 \
           -e POSTGRES_HOST=postgres \
           -e POSTGRES_PORT=5432 \
           -e POSTGRES_DB=jobs_db \
