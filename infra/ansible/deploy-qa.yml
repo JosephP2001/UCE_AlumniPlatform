@@ -113,6 +113,9 @@
     - name: Stop and remove jobs-service container
       shell: docker stop jobs-service && docker rm jobs-service || true
 
+    - name: Stop and remove profile-service container
+      shell: docker stop profile-service && docker rm profile-service || true
+
     - name: Stop and remove web-app container
       shell: docker stop web-app && docker rm web-app || true
 
@@ -121,6 +124,9 @@
 
     - name: Pull jobs-service image
       shell: docker pull josephp2001/uce-jobs-service:qa
+
+    - name: Pull profile-service image
+      shell: docker pull josephp2001/uce-profile-service:qa
 
     - name: Pull web-app image
       shell: docker pull josephp2001/uce-web-app:qa
@@ -156,7 +162,24 @@
           -e PG_PASSWORD="{{ pg_password }}" \
           -e REDIS_HOST=redis \
           -e REDIS_PORT=6379 \
+          -e JWT_SECRET="{{ jwt_secret }}" \
           josephp2001/uce-jobs-service:qa
+
+    - name: Run profile-service container
+      shell: |
+        docker run -d \
+          --name profile-service \
+          --network uce-network \
+          --restart always \
+          -e NODE_ENV=production \
+          -e PORT=3003 \
+          -e POSTGRES_HOST=postgres \
+          -e POSTGRES_PORT=5432 \
+          -e POSTGRES_DB=jobs_db \
+          -e POSTGRES_USER=postgres \
+          -e POSTGRES_PASSWORD="{{ pg_password }}" \
+          -e JWT_SECRET="{{ jwt_secret }}" \
+          josephp2001/uce-profile-service:qa
 
     - name: Run web-app container
       shell: |
