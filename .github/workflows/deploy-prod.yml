@@ -63,7 +63,11 @@ jobs:
           context: ./apps/web-app
           push: true
           tags: josephp2001/uce-web-app:latest
-
+          build-args: |
+            NEXT_PUBLIC_AUTH_URL=http://josheponcepro1.distribuidauce.org
+            NEXT_PUBLIC_JOBS_URL=http://josheponcepro1.distribuidauce.org
+            NEXT_PUBLIC_PROFILE_URL=http://josheponcepro1.distribuidauce.org
+            
       - name: Setup SSH keys
         run: |
           mkdir -p ~/.ssh

@@ -12,7 +12,6 @@ const JWT_EXPIRES_IN = '15m';
 const REFRESH_EXPIRES_IN = '7d';
 
 export class AuthController {
-
   githubLogin = (req: Request, res: Response): void => {
     const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&scope=user:email`;
     res.redirect(githubAuthUrl);
@@ -31,44 +30,51 @@ export class AuthController {
       const tokenResponse = await axios.post(
         'https://github.com/login/oauth/access_token',
         { client_id: CLIENT_ID, client_secret: CLIENT_SECRET, code },
-        { headers: { Accept: 'application/json' } }
+        { headers: { Accept: 'application/json' } },
       );
 
       const githubAccessToken = tokenResponse.data.access_token;
 
       // Get user info from GitHub
       const userResponse = await axios.get('https://api.github.com/user', {
-        headers: { Authorization: `Bearer ${githubAccessToken}` }
+        headers: { Authorization: `Bearer ${githubAccessToken}` },
       });
 
       const githubUser = userResponse.data;
+
+      const role = 'student'; // default, admin-service'll change it later
 
       const payload = {
         id: githubUser.id,
         username: githubUser.login,
         name: githubUser.name,
         avatar: githubUser.avatar_url,
-        provider: 'github'
+        provider: 'github',
+        role, // ← NUEVO
       };
-
       // Issue JWT access token (15min)
-      const accessToken = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+      const accessToken = jwt.sign(payload, JWT_SECRET, {
+        expiresIn: JWT_EXPIRES_IN,
+      });
 
       // Issue refresh token (7d)
-      const refreshToken = jwt.sign({ id: githubUser.id }, JWT_SECRET, { expiresIn: REFRESH_EXPIRES_IN });
+      const refreshToken = jwt.sign({ id: githubUser.id, role }, JWT_SECRET, {
+        expiresIn: REFRESH_EXPIRES_IN,
+      });
 
       // Set refresh token as httpOnly cookie
       res.cookie('refresh_token', refreshToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        maxAge: 7 * 24 * 60 * 60 * 1000
+        maxAge: 7 * 24 * 60 * 60 * 1000,
       });
 
       // Redirect to frontend with token
-      
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost';
-      res.redirect(`${frontendUrl}/auth/callback?token=${accessToken}&user=${encodeURIComponent(JSON.stringify(payload))}`);
 
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost';
+      res.redirect(
+        `${frontendUrl}/auth/callback?token=${accessToken}&user=${encodeURIComponent(JSON.stringify(payload))}`,
+      );
     } catch (error) {
       console.error('GitHub OAuth error:', error);
       res.status(500).json({ error: 'Authentication failed' });
@@ -84,8 +90,10 @@ export class AuthController {
     }
 
     try {
-      const decoded = jwt.verify(refreshToken, JWT_SECRET) as { id: number };
-      const accessToken = jwt.sign({ id: decoded.id }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+      const decoded = jwt.verify(refreshToken, JWT_SECRET) as { id: number; role: string };
+      const accessToken = jwt.sign({ id: decoded.id, role: decoded.role ?? 'student'}, JWT_SECRET, {
+        expiresIn: JWT_EXPIRES_IN,
+      });
       res.json({ accessToken });
     } catch {
       res.status(401).json({ error: 'Invalid refresh token' });
