@@ -76,18 +76,29 @@ jobs:
           ssh-keyscan -T 10 -H ${{ secrets.QA_BASTION_IP }} >> ~/.ssh/known_hosts || true
 
       - name: Create Ansible inventory
+        env:
+          QA_AUTH_JOBS_IP: ${{ secrets.QA_AUTH_JOBS_IP }}
+          QA_BASTION_IP: ${{ secrets.QA_BASTION_IP }}
         run: |
-          cat > /tmp/qa_inventory.yml << EOF
-          all:
+          python3 - << 'PYEOF'
+          import os
+          host = os.environ['QA_AUTH_JOBS_IP']
+          bastion = os.environ['QA_BASTION_IP']
+          proxy = f"ssh -W %h:%p -i ~/.ssh/QA.pem -o StrictHostKeyChecking=no ubuntu@{bastion}"
+          inventory = f"""all:
             hosts:
               qa_ec2:
-                ansible_host: ${{ secrets.QA_AUTH_JOBS_IP }}
+                ansible_host: {host}
                 ansible_user: ubuntu
                 ansible_ssh_private_key_file: ~/.ssh/QA.pem
-                ansible_ssh_common_args: >-
-                  -o StrictHostKeyChecking=no
-                  -o ProxyCommand="ssh -W %h:%p -i ~/.ssh/QA.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.QA_BASTION_IP }}"
-          EOF
+                ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o ProxyCommand='{proxy}'"
+          """
+          with open('/tmp/qa_inventory.yml', 'w') as f:
+              f.write(inventory)
+          print("Inventory written:")
+          print(inventory)
+          PYEOF
+
       - name: Deploy via Ansible
         run: |
           pip install ansible
