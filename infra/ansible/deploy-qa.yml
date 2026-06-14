@@ -1,8 +1,14 @@
 ---
-- name: Deploy QA services via SSH
-  hosts: all
+- name: Deploy QA services via SSH jump
+  hosts: qa_ec2
   become: yes
   gather_facts: yes
+  vars:
+    ansible_user: ubuntu
+    ansible_ssh_private_key_file: ~/.ssh/QA.pem
+    ansible_ssh_common_args: >-
+      -o StrictHostKeyChecking=no
+      -o ProxyCommand="ssh -W %h:%p -i ~/.ssh/QA.pem -o StrictHostKeyChecking=no ubuntu@{{ bastion_ip }}"
   tasks:
 
     # ── FREE DISK SPACE FIRST ──────────────────────────────────
@@ -18,7 +24,20 @@
         find /var/log -type f -name "*.log" -size +10M -exec truncate -s 0 {} \; || true
         journalctl --vacuum-size=50M || true
 
-    # ── INSTALL & SETUP ────────────────────────────────────────
+    # ── DOCKER SETUP ───────────────────────────────────────────
+
+    - name: Remove broken Docker repository
+      file:
+        path: /etc/apt/sources.list.d/docker.list
+        state: absent
+
+    - name: Remove broken Kubernetes repository
+      file:
+        path: /etc/apt/sources.list.d/kubernetes.list
+        state: absent
+
+    - name: Clean apt cache
+      shell: apt-get clean && apt-get update --allow-insecure-repositories || true
 
     - name: Install dependencies
       apt:
@@ -36,18 +55,24 @@
         state: directory
         mode: '0755'
 
+    - name: Remove old Docker GPG key
+      file:
+        path: /etc/apt/keyrings/docker.gpg
+        state: absent
+
     - name: Add Docker GPG key
       shell: |
         curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
         chmod a+r /etc/apt/keyrings/docker.gpg
-      args:
-        creates: /etc/apt/keyrings/docker.gpg
+
+    - name: Remove old Docker repository
+      file:
+        path: /etc/apt/sources.list.d/docker.list
+        state: absent
 
     - name: Add Docker repository
       shell: |
         echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-      args:
-        creates: /etc/apt/sources.list.d/docker.list
 
     - name: Install Docker
       apt:
@@ -68,7 +93,7 @@
     - name: Create Docker network
       shell: docker network create uce-network || true
 
-    # ── DATABASES — IDEMPOTENT (never recreate if already running) ──
+    # ── DATABASES — IDEMPOTENT ─────────────────────────────────
 
     - name: Ensure PostgreSQL is running
       shell: |
@@ -196,7 +221,7 @@
           -e OAUTH_CLIENT_SECRET="{{ oauth_client_secret }}" \
           -e REDIS_HOST=redis \
           -e REDIS_PORT=6379 \
-          -e "FRONTEND_URL=http://{{ ansible_host }}" \
+          -e "FRONTEND_URL=http://{{ bastion_ip }}" \
           josephp2001/uce-auth-service:qa
 
     - name: Run jobs-service container
