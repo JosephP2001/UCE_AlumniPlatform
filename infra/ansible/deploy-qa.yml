@@ -3,12 +3,6 @@
   hosts: qa_ec2
   become: yes
   gather_facts: yes
-  vars:
-    ansible_user: ubuntu
-    ansible_ssh_private_key_file: ~/.ssh/QA.pem
-    ansible_ssh_common_args: >-
-      -o StrictHostKeyChecking=no
-      -o ProxyCommand="ssh -W %h:%p -i ~/.ssh/QA.pem -o StrictHostKeyChecking=no ubuntu@{{ bastion_ip }}"
   tasks:
 
     # ── FREE DISK SPACE FIRST ──────────────────────────────────
@@ -292,7 +286,7 @@
     # ── VERIFY ─────────────────────────────────────────────────
 
     - name: Verify containers are running
-      shell: docker ps
+      shell: docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
       register: docker_ps
 
     - name: Show running containers
