@@ -48,8 +48,6 @@ Thumbs.db
 *.tfstate
 *.tfstate.backup
 **/.terraform.lock.hcl
-infra/terraform/prod/PROD.pub
-
 # Local files
 aws
 dir
