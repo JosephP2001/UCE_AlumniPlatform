@@ -75,8 +75,8 @@ jobs:
           chmod 400 ~/.ssh/QA.pem
           ssh-keyscan -H ${{ secrets.QA_BASTION_IP }} >> ~/.ssh/known_hosts
           ssh -i ~/.ssh/QA.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.QA_BASTION_IP }} \
-            "ssh-keyscan -H ${{ secrets.QA_AUTH_JOBS_IP }}" >> ~/.ssh/known_hosts
-
+            "ssh-keyscan -H ${{ secrets.QA_AUTH_JOBS_IP }}" >> ~/.ssh/known_hosts || true
+            
       - name: Create Ansible inventory
         run: |
           cat > /tmp/qa_inventory.ini << EOF2
