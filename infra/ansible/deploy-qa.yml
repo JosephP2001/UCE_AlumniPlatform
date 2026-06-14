@@ -1,6 +1,6 @@
 ---
 - name: Deploy QA services via SSH jump
-  hosts: qa_ec2
+  hosts: all                #qa_ec2
   become: yes
   gather_facts: yes
   tasks:
