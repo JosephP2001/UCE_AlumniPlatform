@@ -74,7 +74,7 @@ jobs:
           echo "${{ secrets.QA_SSH_KEY }}" > ~/.ssh/QA.pem
           chmod 400 ~/.ssh/QA.pem
           ssh-keyscan -T 10 -H ${{ secrets.QA_BASTION_IP }} >> ~/.ssh/known_hosts || true
-          
+
       - name: Create Ansible inventory
         run: |
           cat > /tmp/qa_inventory.ini << EOF2
