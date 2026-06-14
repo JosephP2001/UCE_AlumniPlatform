@@ -115,13 +115,23 @@ jobs:
             ubuntu@${{ secrets.QA_AUTH_JOBS_IP }} \
             "echo SSH_JUMP_OK && hostname" || echo "SSH jump failed"
 
-      - name: Deploy via Ansible
+      - name: Deploy via SSH direct to Bastion
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          QA_OAUTH_CLIENT_ID: ${{ secrets.QA_OAUTH_CLIENT_ID }}
+          QA_OAUTH_CLIENT_SECRET: ${{ secrets.QA_OAUTH_CLIENT_SECRET }}
+          PG_PASSWORD: ${{ secrets.PG_PASSWORD }}
+          RABBITMQ_PASSWORD: ${{ secrets.RABBITMQ_PASSWORD }}
+          QA_BASTION_IP: ${{ secrets.QA_BASTION_IP }}
         run: |
+          pip install ansible
           ansible-playbook infra/ansible/deploy-qa.yml \
-            -i /tmp/qa_inventory.yml \
-            -e "jwt_secret=${{ secrets.JWT_SECRET }}" \
-            -e "oauth_client_id=${{ secrets.QA_OAUTH_CLIENT_ID }}" \
-            -e "oauth_client_secret=${{ secrets.QA_OAUTH_CLIENT_SECRET }}" \
-            -e "pg_password=${{ secrets.PG_PASSWORD }}" \
-            -e "rabbitmq_password=${{ secrets.RABBITMQ_PASSWORD }}" \
+            -i "${{ secrets.QA_BASTION_IP }}," \
+            --private-key ~/.ssh/QA.pem \
+            -u ubuntu \
+            -e "jwt_secret=${JWT_SECRET}" \
+            -e "oauth_client_id=${QA_OAUTH_CLIENT_ID}" \
+            -e "oauth_client_secret=${QA_OAUTH_CLIENT_SECRET}" \
+            -e "pg_password=${PG_PASSWORD}" \
+            -e "rabbitmq_password=${RABBITMQ_PASSWORD}" \
             -e "bastion_ip=${{ secrets.QA_BASTION_IP }}"
