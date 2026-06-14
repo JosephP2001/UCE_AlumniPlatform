@@ -98,7 +98,12 @@ jobs:
           print("Inventory written:")
           print(inventory)
           PYEOF
-
+      - name: Debug inventory
+        run: |
+          cat /tmp/qa_inventory.yml
+          echo "---"
+          ansible-inventory -i /tmp/qa_inventory.yml --list
+          
       - name: Deploy via Ansible
         run: |
           pip install ansible
