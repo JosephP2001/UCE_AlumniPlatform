@@ -6,9 +6,8 @@ on:
       - QA
 
 jobs:
-  deploy:
-    runs-on: self-hosted
-
+  test-and-build:
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -67,6 +66,13 @@ jobs:
             NEXT_PUBLIC_AUTH_URL=http://${{ secrets.QA_BASTION_IP }}
             NEXT_PUBLIC_JOBS_URL=http://${{ secrets.QA_BASTION_IP }}
             NEXT_PUBLIC_PROFILE_URL=http://${{ secrets.QA_BASTION_IP }}
+
+  deploy:
+    runs-on: self-hosted
+    needs: test-and-build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Install Ansible
         run: pip install ansible
