@@ -75,6 +75,9 @@ jobs:
           chmod 400 ~/.ssh/QA.pem
           ssh-keyscan -T 10 -H ${{ secrets.QA_BASTION_IP }} >> ~/.ssh/known_hosts || true
 
+      - name: Install Ansible
+        run: pip install ansible
+
       - name: Create Ansible inventory
         env:
           QA_AUTH_JOBS_IP: ${{ secrets.QA_AUTH_JOBS_IP }}
@@ -84,29 +87,36 @@ jobs:
           import os
           host = os.environ['QA_AUTH_JOBS_IP']
           bastion = os.environ['QA_BASTION_IP']
-          proxy = f"ssh -W %h:%p -i ~/.ssh/QA.pem -o StrictHostKeyChecking=no ubuntu@{bastion}"
-          inventory = f"""all:
-            hosts:
-              qa_ec2:
-                ansible_host: {host}
-                ansible_user: ubuntu
-                ansible_ssh_private_key_file: ~/.ssh/QA.pem
-                ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o ProxyCommand='{proxy}'"
-          """
+          # Use double quotes around ProxyCommand, escape %h and %p
+          inventory = (
+              "all:\n"
+              "  hosts:\n"
+              "    qa_ec2:\n"
+              f"      ansible_host: {host}\n"
+              "      ansible_user: ubuntu\n"
+              "      ansible_ssh_private_key_file: ~/.ssh/QA.pem\n"
+              "      ansible_ssh_common_args: \"-o StrictHostKeyChecking=no"
+              f" -o ProxyCommand='ssh -W %h:%p -i ~/.ssh/QA.pem"
+              f" -o StrictHostKeyChecking=no ubuntu@{bastion}'\"\n"
+          )
           with open('/tmp/qa_inventory.yml', 'w') as f:
               f.write(inventory)
-          print("Inventory written:")
           print(inventory)
           PYEOF
+
       - name: Debug inventory
         run: |
+          echo "=== Raw inventory ==="
           cat /tmp/qa_inventory.yml
-          echo "---"
-          ansible-inventory -i /tmp/qa_inventory.yml --list
-          
+          echo "=== Test SSH through bastion ==="
+          ssh -i ~/.ssh/QA.pem \
+            -o StrictHostKeyChecking=no \
+            -o ProxyCommand="ssh -W %h:%p -i ~/.ssh/QA.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.QA_BASTION_IP }}" \
+            ubuntu@${{ secrets.QA_AUTH_JOBS_IP }} \
+            "echo SSH_JUMP_OK && hostname" || echo "SSH jump failed"
+
       - name: Deploy via Ansible
         run: |
-          pip install ansible
           ansible-playbook infra/ansible/deploy-qa.yml \
             -i /tmp/qa_inventory.yml \
             -e "jwt_secret=${{ secrets.JWT_SECRET }}" \
