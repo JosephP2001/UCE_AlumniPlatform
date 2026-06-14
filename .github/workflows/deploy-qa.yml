@@ -77,18 +77,22 @@ jobs:
 
       - name: Create Ansible inventory
         run: |
-          cat > /tmp/qa_inventory.ini << EOF2
-          [qa_ec2]
-          ${{ secrets.QA_AUTH_JOBS_IP }} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/QA.pem ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ProxyCommand="ssh -W %h:%p -i ~/.ssh/QA.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.QA_BASTION_IP }}"'
-          EOF2
-      - name: Debug inventory
-        run: cat /tmp/qa_inventory.ini
-        
+          cat > /tmp/qa_inventory.yml << EOF
+          all:
+            hosts:
+              qa_ec2:
+                ansible_host: ${{ secrets.QA_AUTH_JOBS_IP }}
+                ansible_user: ubuntu
+                ansible_ssh_private_key_file: ~/.ssh/QA.pem
+                ansible_ssh_common_args: >-
+                  -o StrictHostKeyChecking=no
+                  -o ProxyCommand="ssh -W %h:%p -i ~/.ssh/QA.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.QA_BASTION_IP }}"
+          EOF
       - name: Deploy via Ansible
         run: |
           pip install ansible
           ansible-playbook infra/ansible/deploy-qa.yml \
-            -i /tmp/qa_inventory.ini \
+            -i /tmp/qa_inventory.yml \
             -e "jwt_secret=${{ secrets.JWT_SECRET }}" \
             -e "oauth_client_id=${{ secrets.QA_OAUTH_CLIENT_ID }}" \
             -e "oauth_client_secret=${{ secrets.QA_OAUTH_CLIENT_SECRET }}" \
