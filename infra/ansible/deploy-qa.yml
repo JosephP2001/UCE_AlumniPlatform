@@ -1,8 +1,12 @@
 ---
 - name: Deploy QA services via SSH jump
-  hosts: all                #qa_ec2
+  hosts: qa_ec2
   become: yes
   gather_facts: yes
+  vars:
+    ansible_user: ubuntu
+    ansible_ssh_private_key_file: ~/.ssh/QA.pem
+    ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
   tasks:
 
     # ── FREE DISK SPACE FIRST ──────────────────────────────────
