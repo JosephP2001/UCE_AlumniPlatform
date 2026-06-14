@@ -68,6 +68,7 @@ jobs:
             NEXT_PUBLIC_JOBS_URL=http://josheponcepro1.distribuidauce.org
             NEXT_PUBLIC_PROFILE_URL=http://josheponcepro1.distribuidauce.org
             
+
       - name: Setup SSH keys
         run: |
           mkdir -p ~/.ssh
@@ -86,11 +87,12 @@ jobs:
 
       - name: Deploy via Ansible
         run: |
-          pip install ansible
-          ansible-playbook infra/ansible/deploy-prod.yml \
-            -i /tmp/prod_inventory.ini \
-            -e "jwt_secret=${{ secrets.JWT_SECRET }}" \
-            -e "oauth_client_id=${{ secrets.OAUTH_CLIENT_ID }}" \
-            -e "oauth_client_secret=${{ secrets.OAUTH_CLIENT_SECRET }}" \
-            -e "pg_password=${{ secrets.PG_PASSWORD }}" \
-            -e "bastion_ip=${{ secrets.PROD_BASTION_IP }}"
+         pip install ansible
+         ansible-playbook infra/ansible/deploy-prod.yml \
+          -i /tmp/prod_inventory.ini \
+          -e "jwt_secret=${{ secrets.JWT_SECRET }}" \
+          -e "oauth_client_id=${{ secrets.OAUTH_CLIENT_ID }}" \
+          -e "oauth_client_secret=${{ secrets.OAUTH_CLIENT_SECRET }}" \
+          -e "pg_password=${{ secrets.PG_PASSWORD }}" \
+          -e "bastion_ip=${{ secrets.PROD_BASTION_IP }}" \
+          -e "rabbitmq_password=${{ secrets.RABBITMQ_PASSWORD }}"

@@ -77,12 +77,13 @@ jobs:
 
       - name: Deploy via Ansible
         run: |
-          pip install ansible
-          ansible-playbook infra/ansible/deploy-qa.yml \
-            -i "${{ secrets.QA_BASTION_IP }}," \
-            --private-key ~/.ssh/QA.pem \
-            -u ubuntu \
-            -e "jwt_secret=${{ secrets.JWT_SECRET }}" \
-            -e "oauth_client_id=${{ secrets.QA_OAUTH_CLIENT_ID }}" \
-            -e "oauth_client_secret=${{ secrets.QA_OAUTH_CLIENT_SECRET }}" \
-            -e "pg_password=${{ secrets.PG_PASSWORD }}"
+         pip install ansible
+         ansible-playbook infra/ansible/deploy-qa.yml \
+         -i "${{ secrets.QA_BASTION_IP }}," \
+         --private-key ~/.ssh/QA.pem \
+         -u ubuntu \
+         -e "jwt_secret=${{ secrets.JWT_SECRET }}" \
+         -e "oauth_client_id=${{ secrets.QA_OAUTH_CLIENT_ID }}" \
+         -e "oauth_client_secret=${{ secrets.QA_OAUTH_CLIENT_SECRET }}" \
+         -e "pg_password=${{ secrets.PG_PASSWORD }}" \
+         -e "rabbitmq_password=${{ secrets.RABBITMQ_PASSWORD }}"
