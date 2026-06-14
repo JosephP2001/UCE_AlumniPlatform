@@ -194,7 +194,7 @@ resource "aws_security_group" "sg_private" {
   }
   ingress {
     from_port       = 3000
-    to_port         = 3002
+    to_port         = 3003
     protocol        = "tcp"
     security_groups = [aws_security_group.sg_elb.id]
   }
@@ -236,7 +236,12 @@ resource "aws_instance" "bastion" {
   subnet_id              = aws_subnet.public_1a.id
   key_name               = aws_key_pair.prod_key.key_name
   vpc_security_group_ids = [aws_security_group.sg_bastion.id]
-  tags                   = { Name = "uce-prod-bastion" }
+
+  lifecycle {
+    ignore_changes = [ami]
+  }
+
+  tags = { Name = "uce-prod-bastion" }
 }
 
 resource "aws_eip" "bastion_eip" {
@@ -248,35 +253,45 @@ resource "aws_eip" "bastion_eip" {
 
 # ─────────────────────────────────────────
 # LAUNCH TEMPLATE — for ASG
+# FIX: t3.large + 30GB to support Kafka, RabbitMQ, MongoDB
 # ─────────────────────────────────────────
 resource "aws_launch_template" "prod_lt" {
   name_prefix   = "uce-prod-lt-"
   image_id      = data.aws_ami.ubuntu.id
-  instance_type = "t3.small"
+  instance_type = "t3.large"  # FIX: t3.small → t3.large (Kafka+RabbitMQ+MongoDB need RAM)
   key_name      = aws_key_pair.prod_key.key_name
 
   vpc_security_group_ids = [aws_security_group.sg_private.id]
 
   user_data = base64encode(<<-EOF
     #!/bin/bash
-    apt update -y
-    apt install -y ca-certificates curl gnupg git apt-transport-https
+    set -e
+    exec > /var/log/uce-ec2-init.log 2>&1
+
+    apt-get update -y
+    apt-get install -y ca-certificates curl gnupg git apt-transport-https
+
     install -m 0755 -d /etc/apt/keyrings
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
     chmod a+r /etc/apt/keyrings/docker.gpg
+
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-    apt update -y
-    apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+    apt-get update -y
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
     systemctl enable docker
     systemctl start docker
     usermod -aG docker ubuntu
+
+    echo "EC2 PROD init complete"
   EOF
   )
 
   block_device_mappings {
     device_name = "/dev/sda1"
     ebs {
-      volume_size           = 20
+      volume_size           = 30  # FIX: 20 → 30GB for messaging stack
       volume_type           = "gp3"
       delete_on_termination = true
     }
@@ -314,7 +329,7 @@ resource "aws_autoscaling_group" "prod_asg" {
   ]
 
   health_check_type         = "ELB"
-  health_check_grace_period = 300   # FIX: 120 → 300 — Ansible needs time to deploy containers
+  health_check_grace_period = 300
 
   tag {
     key                 = "Name"

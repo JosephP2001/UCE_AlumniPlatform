@@ -6,9 +6,8 @@ on:
       - QA
 
 jobs:
-  deploy:
+  test-and-build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -68,21 +67,28 @@ jobs:
             NEXT_PUBLIC_JOBS_URL=http://${{ secrets.QA_BASTION_IP }}
             NEXT_PUBLIC_PROFILE_URL=http://${{ secrets.QA_BASTION_IP }}
 
-      - name: Setup SSH key
+  deploy:
+    runs-on: self-hosted
+    needs: test-and-build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Ansible
+        run: pip3 install ansible --break-system-packages
+
+      - name: Create Ansible inventory
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.QA_SSH_KEY }}" > ~/.ssh/QA.pem
-          chmod 400 ~/.ssh/QA.pem
-          ssh-keyscan -H ${{ secrets.QA_BASTION_IP }} >> ~/.ssh/known_hosts
+          echo "[qa_ec2]" > /tmp/qa_inventory.ini
+          echo "${{ secrets.QA_AUTH_JOBS_IP }} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/QA.pem ansible_ssh_common_args='-o StrictHostKeyChecking=no'" >> /tmp/qa_inventory.ini
 
       - name: Deploy via Ansible
         run: |
-          pip install ansible
           ansible-playbook infra/ansible/deploy-qa.yml \
-            -i "${{ secrets.QA_BASTION_IP }}," \
-            --private-key ~/.ssh/QA.pem \
-            -u ubuntu \
+            -i /tmp/qa_inventory.ini \
             -e "jwt_secret=${{ secrets.JWT_SECRET }}" \
             -e "oauth_client_id=${{ secrets.QA_OAUTH_CLIENT_ID }}" \
             -e "oauth_client_secret=${{ secrets.QA_OAUTH_CLIENT_SECRET }}" \
-            -e "pg_password=${{ secrets.PG_PASSWORD }}"
+            -e "pg_password=${{ secrets.PG_PASSWORD }}" \
+            -e "rabbitmq_password=${{ secrets.RABBITMQ_PASSWORD }}" \
+            -e "bastion_ip=${{ secrets.QA_BASTION_IP }}"

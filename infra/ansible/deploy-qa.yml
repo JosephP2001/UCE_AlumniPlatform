@@ -1,8 +1,12 @@
 ---
-- name: Deploy QA services via SSH
-  hosts: all
+- name: Deploy QA services via SSH jump
+  hosts: qa_ec2
   become: yes
   gather_facts: yes
+  vars:
+    ansible_user: ubuntu
+    ansible_ssh_private_key_file: ~/.ssh/QA.pem
+    ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
   tasks:
 
     # ── FREE DISK SPACE FIRST ──────────────────────────────────
@@ -18,7 +22,20 @@
         find /var/log -type f -name "*.log" -size +10M -exec truncate -s 0 {} \; || true
         journalctl --vacuum-size=50M || true
 
-    # ── INSTALL & SETUP ────────────────────────────────────────
+    # ── DOCKER SETUP ───────────────────────────────────────────
+
+    - name: Remove broken Docker repository
+      file:
+        path: /etc/apt/sources.list.d/docker.list
+        state: absent
+
+    - name: Remove broken Kubernetes repository
+      file:
+        path: /etc/apt/sources.list.d/kubernetes.list
+        state: absent
+
+    - name: Clean apt cache
+      shell: apt-get clean && apt-get update --allow-insecure-repositories || true
 
     - name: Install dependencies
       apt:
@@ -36,18 +53,24 @@
         state: directory
         mode: '0755'
 
+    - name: Remove old Docker GPG key
+      file:
+        path: /etc/apt/keyrings/docker.gpg
+        state: absent
+
     - name: Add Docker GPG key
       shell: |
         curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
         chmod a+r /etc/apt/keyrings/docker.gpg
-      args:
-        creates: /etc/apt/keyrings/docker.gpg
+
+    - name: Remove old Docker repository
+      file:
+        path: /etc/apt/sources.list.d/docker.list
+        state: absent
 
     - name: Add Docker repository
       shell: |
         echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-      args:
-        creates: /etc/apt/sources.list.d/docker.list
 
     - name: Install Docker
       apt:
@@ -68,13 +91,11 @@
     - name: Create Docker network
       shell: docker network create uce-network || true
 
-    # ── DATABASES ──────────────────────────────────────────────
+    # ── DATABASES — IDEMPOTENT ─────────────────────────────────
 
-    - name: Stop and remove postgres container
-      shell: docker stop postgres && docker rm postgres || true
-
-    - name: Run PostgreSQL container
+    - name: Ensure PostgreSQL is running
       shell: |
+        docker ps --filter "name=postgres" --filter "status=running" | grep -q postgres || \
         docker run -d \
           --name postgres \
           --network uce-network \
@@ -85,11 +106,9 @@
           -v pg_data:/var/lib/postgresql/data \
           postgres:15-alpine
 
-    - name: Stop and remove redis container
-      shell: docker stop redis && docker rm redis || true
-
-    - name: Run Redis container
+    - name: Ensure Redis is running
       shell: |
+        docker ps --filter "name=redis" --filter "status=running" | grep -q redis || \
         docker run -d \
           --name redis \
           --network uce-network \
@@ -104,6 +123,62 @@
           sleep 2
         done
         exit 1
+
+    # ── MESSAGING INFRASTRUCTURE — IDEMPOTENT ──────────────────
+
+    - name: Ensure Zookeeper is running
+      shell: |
+        docker ps --filter "name=zookeeper" --filter "status=running" | grep -q zookeeper || \
+        docker run -d \
+          --name zookeeper \
+          --network uce-network \
+          --restart always \
+          -e ZOOKEEPER_CLIENT_PORT=2181 \
+          -e ZOOKEEPER_TICK_TIME=2000 \
+          confluentinc/cp-zookeeper:7.4.0
+
+    - name: Wait for Zookeeper to be ready
+      shell: sleep 10
+
+    - name: Ensure Kafka is running
+      shell: |
+        docker ps --filter "name=kafka" --filter "status=running" | grep -q kafka || \
+        docker run -d \
+          --name kafka \
+          --network uce-network \
+          --restart always \
+          -e KAFKA_BROKER_ID=1 \
+          -e KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181 \
+          -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092 \
+          -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
+          -e KAFKA_AUTO_CREATE_TOPICS_ENABLE=true \
+          confluentinc/cp-kafka:7.4.0
+
+    - name: Ensure RabbitMQ is running
+      shell: |
+        docker ps --filter "name=rabbitmq" --filter "status=running" | grep -q rabbitmq || \
+        docker run -d \
+          --name rabbitmq \
+          --network uce-network \
+          --restart always \
+          -e RABBITMQ_DEFAULT_USER=admin \
+          -e RABBITMQ_DEFAULT_PASS="{{ rabbitmq_password }}" \
+          -e RABBITMQ_DEFAULT_VHOST=/ \
+          rabbitmq:3.12-management-alpine
+
+    - name: Ensure MongoDB is running
+      shell: |
+        docker ps --filter "name=mongodb" --filter "status=running" | grep -q mongodb || \
+        docker run -d \
+          --name mongodb \
+          --network uce-network \
+          --restart always \
+          -e MONGO_INITDB_DATABASE=profiles_db \
+          -v mongo_data:/data/db \
+          mongo:7-jammy
+
+    - name: Wait for Kafka to be ready
+      shell: sleep 15
 
     # ── SERVICES ───────────────────────────────────────────────
 
@@ -144,7 +219,7 @@
           -e OAUTH_CLIENT_SECRET="{{ oauth_client_secret }}" \
           -e REDIS_HOST=redis \
           -e REDIS_PORT=6379 \
-          -e "FRONTEND_URL=http://{{ ansible_host }}" \
+          -e "FRONTEND_URL=http://{{ bastion_ip }}" \
           josephp2001/uce-auth-service:qa
 
     - name: Run jobs-service container
@@ -159,10 +234,11 @@
           -e PG_PORT=5432 \
           -e PG_DATABASE=jobs_db \
           -e PG_USER=postgres \
-          -e PG_PASSWORD="{{ pg_password }}" \
+          -e 'PG_PASSWORD={{ pg_password }}' \
           -e REDIS_HOST=redis \
           -e REDIS_PORT=6379 \
           -e JWT_SECRET="{{ jwt_secret }}" \
+          -e KAFKA_BROKER=kafka:9092 \
           josephp2001/uce-jobs-service:qa
 
     - name: Run profile-service container
@@ -177,7 +253,7 @@
           -e POSTGRES_PORT=5432 \
           -e POSTGRES_DB=jobs_db \
           -e POSTGRES_USER=postgres \
-          -e POSTGRES_PASSWORD="{{ pg_password }}" \
+          -e 'POSTGRES_PASSWORD={{ pg_password }}' \
           -e JWT_SECRET="{{ jwt_secret }}" \
           josephp2001/uce-profile-service:qa
 
@@ -214,7 +290,7 @@
     # ── VERIFY ─────────────────────────────────────────────────
 
     - name: Verify containers are running
-      shell: docker ps
+      shell: "docker ps --format 'table {% raw %}{{.Names}}\t{{.Status}}\t{{.Ports}}{% endraw %}'"
       register: docker_ps
 
     - name: Show running containers
