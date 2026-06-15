@@ -180,24 +180,31 @@ resource "aws_security_group" "sg_private" {
   description = "Private EC2 instances — only from ELB and bastion"
   vpc_id      = aws_vpc.main.id
 
+  # All internal VPC traffic
   ingress {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["10.0.0.0/16"]
   }
+
+  # SSH from bastion only
   ingress {
     from_port       = 22
     to_port         = 22
     protocol        = "tcp"
     security_groups = [aws_security_group.sg_bastion.id]
   }
+
+  # All microservice ports from ELB (3000-3005)
+  # FIX: was 3000-3003, now includes notification(3004) + matching(3005)
   ingress {
     from_port       = 3000
-    to_port         = 3003
+    to_port         = 3005
     protocol        = "tcp"
     security_groups = [aws_security_group.sg_elb.id]
   }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -253,12 +260,11 @@ resource "aws_eip" "bastion_eip" {
 
 # ─────────────────────────────────────────
 # LAUNCH TEMPLATE — for ASG
-# FIX: t3.large + 30GB to support Kafka, RabbitMQ, MongoDB
 # ─────────────────────────────────────────
 resource "aws_launch_template" "prod_lt" {
   name_prefix   = "uce-prod-lt-"
   image_id      = data.aws_ami.ubuntu.id
-  instance_type = "t3.large"  # FIX: t3.small → t3.large (Kafka+RabbitMQ+MongoDB need RAM)
+  instance_type = "t3.large"
   key_name      = aws_key_pair.prod_key.key_name
 
   vpc_security_group_ids = [aws_security_group.sg_private.id]
@@ -291,7 +297,7 @@ resource "aws_launch_template" "prod_lt" {
   block_device_mappings {
     device_name = "/dev/sda1"
     ebs {
-      volume_size           = 30  # FIX: 20 → 30GB for messaging stack
+      volume_size           = 30
       volume_type           = "gp3"
       delete_on_termination = true
     }
