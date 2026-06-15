@@ -8,7 +8,7 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
-	"github.com/JosephP2001/uce-platform/matching-service/pkg/models"
+	"matching-service/pkg/models"
 )
 
 type RabbitMQProducer struct {
@@ -55,10 +55,10 @@ func (p *RabbitMQProducer) PublishMatch(match models.MatchResult) error {
 	defer cancel()
 
 	return p.channel.PublishWithContext(ctx,
-		"",      // exchange
-		p.queue, // routing key
-		false,   // mandatory
-		false,   // immediate
+		"",
+		p.queue,
+		false,
+		false,
 		amqp.Publishing{
 			ContentType:  "application/json",
 			Body:         body,
