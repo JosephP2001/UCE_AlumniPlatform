@@ -273,7 +273,7 @@
           -e POSTGRES_USER=postgres \
           -e 'POSTGRES_PASSWORD={{ pg_password }}' \
           -e JWT_SECRET="{{ jwt_secret }}" \
-          -e 'RABBITMQ_PASSWORD={{ rabbitmq_password }}' \
+          -e "RABBITMQ_URL=amqp://admin:{{ rabbitmq_password }}@rabbitmq:5672" \
           josephp2001/uce-notification-service:qa
 
     - name: Run web-app container
