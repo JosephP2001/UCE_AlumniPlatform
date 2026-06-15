@@ -13,7 +13,7 @@ COPY . .
 # Generate go.sum and tidy if needed
 RUN go mod tidy
 
-RUN CGO_ENABLED=1 GOOS=linux go build -o matching-service ./cmd/server
+RUN CGO_ENABLED=1 GOOS=linux go build -tags dynamic -o matching-service ./cmd/server
 
 # ── Runner stage ──────────────────────────────────────────
 FROM alpine:3.19
