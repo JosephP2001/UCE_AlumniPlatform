@@ -1,12 +1,13 @@
 import { Request, Response } from 'express';
 import { pgPool, redisClient } from '../services/db.service';
+import { publishJobCreated } from '../services/kafka.service';
 import logger from '../logger';
 
 const CACHE_TTL = 60; // seconds
 
 export class JobsController {
 
-  // COMMAND SIDE — write to PostgreSQL
+  // COMMAND SIDE — write to PostgreSQL + publish to Kafka
   createJob = async (req: Request, res: Response): Promise<void> => {
     const { title, company, description, location, salary, job_type, requirements } = req.body;
 
@@ -24,8 +25,17 @@ export class JobsController {
       );
 
       await redisClient.del('jobs:all');
-      logger.info('Job created', { jobId: result.rows[0].id, title, company });
-      res.status(201).json({ job: result.rows[0] });
+
+      // Publish event to Kafka — non-blocking, won't fail the request
+      const job = result.rows[0];
+      await publishJobCreated({
+        jobId: job.id,
+        title: job.title,
+        company: job.company,
+      });
+
+      logger.info('Job created', { jobId: job.id, title, company });
+      res.status(201).json({ job });
     } catch (error) {
       logger.error('createJob error', { error });
       res.status(500).json({ error: 'Failed to create job' });

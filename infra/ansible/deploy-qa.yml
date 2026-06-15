@@ -1,12 +1,8 @@
 ---
-- name: Deploy QA services via SSH jump
+- name: Deploy QA services
   hosts: qa_ec2
   become: yes
   gather_facts: yes
-  vars:
-    ansible_user: ubuntu
-    ansible_ssh_private_key_file: ~/.ssh/QA.pem
-    ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
   tasks:
 
     # ── FREE DISK SPACE FIRST ──────────────────────────────────
@@ -191,6 +187,31 @@
     - name: Stop and remove profile-service container
       shell: docker stop profile-service && docker rm profile-service || true
 
+    - name: Stop and remove notification-service container
+      shell: docker stop notification-service && docker rm notification-service || true
+
+    - name: Stop and remove matching-service container
+      shell: docker stop matching-service && docker rm matching-service || true
+
+    - name: Pull matching-service image
+      shell: docker pull josephp2001/uce-matching-service:qa
+
+    - name: Run matching-service container
+      shell: |
+        docker run -d \
+          --name matching-service \
+          --network uce-network \
+          --restart always \
+          -e PORT=3005 \
+          -e POSTGRES_HOST=postgres \
+          -e POSTGRES_PORT=5432 \
+          -e POSTGRES_DB=jobs_db \
+          -e POSTGRES_USER=postgres \
+          -e 'POSTGRES_PASSWORD={{ pg_password }}' \
+          -e KAFKA_BROKER=kafka:9092 \
+          -e 'RABBITMQ_PASSWORD={{ rabbitmq_password }}' \
+          josephp2001/uce-matching-service:qa
+
     - name: Stop and remove web-app container
       shell: docker stop web-app && docker rm web-app || true
 
@@ -202,6 +223,9 @@
 
     - name: Pull profile-service image
       shell: docker pull josephp2001/uce-profile-service:qa
+
+    - name: Pull notification-service image
+      shell: docker pull josephp2001/uce-notification-service:qa
 
     - name: Pull web-app image
       shell: docker pull josephp2001/uce-web-app:qa
@@ -257,6 +281,23 @@
           -e JWT_SECRET="{{ jwt_secret }}" \
           josephp2001/uce-profile-service:qa
 
+    - name: Run notification-service container
+      shell: |
+        docker run -d \
+          --name notification-service \
+          --network uce-network \
+          --restart always \
+          -e NODE_ENV=production \
+          -e PORT=3004 \
+          -e POSTGRES_HOST=postgres \
+          -e POSTGRES_PORT=5432 \
+          -e POSTGRES_DB=jobs_db \
+          -e POSTGRES_USER=postgres \
+          -e 'POSTGRES_PASSWORD={{ pg_password }}' \
+          -e JWT_SECRET="{{ jwt_secret }}" \
+          -e "RABBITMQ_URL=amqp://admin:{{ rabbitmq_password }}@rabbitmq:5672" \
+          josephp2001/uce-notification-service:qa
+
     - name: Run web-app container
       shell: |
         docker run -d \
@@ -290,7 +331,7 @@
     # ── VERIFY ─────────────────────────────────────────────────
 
     - name: Verify containers are running
-      shell: "docker ps --format 'table {% raw %}{{.Names}}\t{{.Status}}\t{{.Ports}}{% endraw %}'"
+      shell: docker ps
       register: docker_ps
 
     - name: Show running containers

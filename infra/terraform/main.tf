@@ -10,7 +10,7 @@ terraform {
     }
   }
   backend "s3" {
-    bucket       = "uce-alumni-tfstate-qa"
+    bucket       = "uce-alumni-tfstate-qa-026658"
     key          = "qa/terraform.tfstate"
     region       = "us-east-1"
     use_lockfile = true
@@ -163,10 +163,19 @@ resource "aws_security_group" "sg_private" {
 }
 
 # ─────────────────────────────────────────
+# IAM — usar LabInstanceProfile de AWS Academy
+# ─────────────────────────────────────────
+data "aws_iam_instance_profile" "lab_profile" {
+  name = "LabInstanceProfile"
+}
+
+
+# ─────────────────────────────────────────
 # KEY PAIR
 # ─────────────────────────────────────────
-data "aws_key_pair" "qa_key" {
-  key_name = "QA"
+resource "aws_key_pair" "qa_key" {
+  key_name   = "QA"
+  public_key = file("${path.module}/QA.pub")
 }
 
 # ─────────────────────────────────────────
@@ -188,45 +197,97 @@ resource "aws_instance" "bastion" {
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = "t3.micro"
   subnet_id              = aws_subnet.public_1a.id
-  key_name               = data.aws_key_pair.qa_key.key_name
+  key_name               = aws_key_pair.qa_key.key_name
   vpc_security_group_ids = [aws_security_group.sg_bastion.id]
-  tags                   = { Name = "uce-qa-bastion" }
+  iam_instance_profile = data.aws_iam_instance_profile.lab_profile.name
+
+  user_data = base64encode(<<-EOF
+    #!/bin/bash
+    set -e
+    exec > /var/log/uce-bastion-init.log 2>&1
+
+    # ── Update & base deps ──────────────────────────────────
+    apt-get update -y
+    apt-get install -y curl unzip jq
+
+    # ── SSM Agent ───────────────────────────────────────────
+    snap install amazon-ssm-agent --classic || true
+    systemctl enable snap.amazon-ssm-agent.amazon-ssm-agent.service || true
+    systemctl start snap.amazon-ssm-agent.amazon-ssm-agent.service || true
+
+    # ── GitHub Actions Runner ───────────────────────────────
+    mkdir -p /home/ubuntu/actions-runner
+    cd /home/ubuntu/actions-runner
+    curl -o runner.tar.gz -L https://github.com/actions/runner/releases/download/v2.322.0/actions-runner-linux-x64-2.322.0.tar.gz
+    tar xzf runner.tar.gz
+    rm runner.tar.gz
+    chown -R ubuntu:ubuntu /home/ubuntu/actions-runner
+
+    # ── Copy QA key for Ansible SSH jumps ───────────────────
+    mkdir -p /home/ubuntu/.ssh
+    chmod 700 /home/ubuntu/.ssh
+    chown ubuntu:ubuntu /home/ubuntu/.ssh
+
+    echo "Bastion init complete — configure runner manually via SSM or SSH"
+  EOF
+  )
+
+  root_block_device {
+    volume_size = 20
+    volume_type = "gp3"
+  }
+
+  lifecycle {
+    ignore_changes = [user_data, ami]
+  }
+
+  tags = { Name = "uce-qa-bastion" }
 }
-resource "aws_eip" "bastion_eip" {              # ELASTIC BASTION
+
+resource "aws_eip" "bastion_eip" {
   instance   = aws_instance.bastion.id
   domain     = "vpc"
   depends_on = [aws_internet_gateway.igw]
   tags       = { Name = "uce-qa-bastion-eip" }
 }
 
-
 # ─────────────────────────────────────────
 # EC2 — QA Auth + Jobs service
 # ─────────────────────────────────────────
 resource "aws_instance" "qa_auth_jobs" {
   ami                    = data.aws_ami.ubuntu.id
-  instance_type          = "t3.micro"
+  instance_type          = "t3.large"
   subnet_id              = aws_subnet.private_1a.id
-  key_name               = data.aws_key_pair.qa_key.key_name
+  key_name               = aws_key_pair.qa_key.key_name
   vpc_security_group_ids = [aws_security_group.sg_private.id]
 
-  user_data = <<-EOF
+  user_data = base64encode(<<-EOF
     #!/bin/bash
-    apt update -y
-    apt install -y ca-certificates curl gnupg git apt-transport-https
+    set -e
+    exec > /var/log/uce-ec2-init.log 2>&1
+
+    apt-get update -y
+    apt-get install -y ca-certificates curl gnupg git apt-transport-https
+
     install -m 0755 -d /etc/apt/keyrings
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
     chmod a+r /etc/apt/keyrings/docker.gpg
+
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-    apt update -y
-    apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+    apt-get update -y
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
     systemctl enable docker
     systemctl start docker
     usermod -aG docker ubuntu
+
+    echo "EC2 init complete"
   EOF
+  )
 
   root_block_device {
-    volume_size = 20
+    volume_size = 30
     volume_type = "gp3"
   }
 
@@ -241,7 +302,7 @@ resource "aws_instance" "qa_auth_jobs" {
 # OUTPUTS
 # ─────────────────────────────────────────
 output "bastion_public_ip" {
-  description = "QA Bastion EIP — fixed across sessions"   # NO NEED TO UPDATE BASTION
+  description = "QA Bastion EIP — fixed across sessions"
   value       = aws_eip.bastion_eip.public_ip
 }
 
