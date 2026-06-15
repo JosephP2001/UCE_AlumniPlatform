@@ -6,6 +6,7 @@ import swaggerUi from 'swagger-ui-express';
 import jwt from 'jsonwebtoken';
 import { jobsRouter } from './routes/jobs.routes';
 import { pgPool, redisClient, connectRedis } from './services/db.service';
+import { connectKafka } from './services/kafka.service';
 import logger from './logger';
 import { swaggerSpec } from './swagger';
 
@@ -111,6 +112,10 @@ const start = async () => {
   try {
     await initDB();
     await connectRedis();
+    // Kafka — non-blocking, service starts even if Kafka is down
+    connectKafka().catch((err) =>
+      logger.warn('Kafka producer failed to connect on startup', { err })
+    );
     app.listen(PORT, () => {
       logger.info('jobs-service started', { port: PORT, env: process.env.NODE_ENV });
     });
