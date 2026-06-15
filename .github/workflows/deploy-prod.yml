@@ -38,6 +38,8 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN }}
 
+     #SERVICES------------------------     
+
       - name: Build and push auth-service
         uses: docker/build-push-action@v5
         with:
@@ -66,6 +68,13 @@ jobs:
           push: true
           tags: josephp2001/uce-notification-service:latest
 
+      - name: Build and push matching-service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./apps/matching-service
+          push: true
+          tags: josephp2001/uce-matching-service:latest
+
       - name: Build and push web-app
         uses: docker/build-push-action@v5
         with:
@@ -77,6 +86,8 @@ jobs:
             NEXT_PUBLIC_JOBS_URL=http://josheponcepro1.distribuidauce.org
             NEXT_PUBLIC_PROFILE_URL=http://josheponcepro1.distribuidauce.org
             NEXT_PUBLIC_NOTIFICATIONS_URL=http://josheponcepro1.distribuidauce.org
+       #--------------------------------------------  
+    
 
   deploy:
     runs-on: ubuntu-latest
