@@ -309,7 +309,7 @@
     # ── VERIFY ─────────────────────────────────────────────────
 
     - name: Verify containers are running
-      shell: docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+      shell: docker ps
       register: docker_ps
 
     - name: Show running containers
