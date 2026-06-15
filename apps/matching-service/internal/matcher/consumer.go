@@ -11,9 +11,9 @@ import (
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 
-	"github.com/JosephP2001/uce-platform/matching-service/internal/matcher"
-	"github.com/JosephP2001/uce-platform/matching-service/internal/producer"
-	"github.com/JosephP2001/uce-platform/matching-service/pkg/models"
+	"matching-service/internal/matcher"
+	"matching-service/internal/producer"
+	"matching-service/pkg/models"
 )
 
 type KafkaConsumer struct {
@@ -54,14 +54,12 @@ func (kc *KafkaConsumer) Start() {
 		default:
 			msg, err := kc.consumer.ReadMessage(100)
 			if err != nil {
-				// Timeout is normal — just continue
 				if kafkaErr, ok := err.(kafka.Error); ok && kafkaErr.Code() == kafka.ErrTimedOut {
 					continue
 				}
 				log.Printf("Kafka read error: %v\n", err)
 				continue
 			}
-
 			kc.handleMessage(msg)
 		}
 	}
@@ -77,14 +75,12 @@ func (kc *KafkaConsumer) handleMessage(msg *kafka.Message) {
 	log.Printf("Received job.created: jobId=%d title=%s company=%s\n",
 		event.JobID, event.Title, event.Company)
 
-	// Fetch all profiles from PostgreSQL
 	profiles, err := kc.fetchProfiles()
 	if err != nil {
 		log.Printf("Failed to fetch profiles: %v\n", err)
 		return
 	}
 
-	// Score each profile against the job title + company
 	jobText := event.Title + " " + event.Company
 	matched := 0
 

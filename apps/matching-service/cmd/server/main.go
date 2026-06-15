@@ -10,9 +10,9 @@ import (
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 
-	"github.com/JosephP2001/uce-platform/matching-service/internal/consumer"
-	"github.com/JosephP2001/uce-platform/matching-service/internal/handler"
-	"github.com/JosephP2001/uce-platform/matching-service/internal/producer"
+	"matching-service/internal/consumer"
+	"matching-service/internal/handler"
+	"matching-service/internal/producer"
 )
 
 func main() {

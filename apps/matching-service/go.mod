@@ -1,4 +1,4 @@
-module github.com/JosephP2001/uce-platform/matching-service
+module matching-service
 
 go 1.22
 
