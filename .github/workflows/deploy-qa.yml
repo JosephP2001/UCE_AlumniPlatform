@@ -65,6 +65,13 @@ jobs:
           context: ./apps/notification-service
           push: true
           tags: josephp2001/uce-notification-service:qa
+      
+      - name: Build and push matching-service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./apps/matching-service
+          push: true
+          tags: josephp2001/uce-matching-service:qa
 
       - name: Build and push web-app
         uses: docker/build-push-action@v5
