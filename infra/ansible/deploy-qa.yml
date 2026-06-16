@@ -337,3 +337,36 @@
     - name: Show running containers
       debug:
         var: docker_ps.stdout_lines
+
+# ── BASTION REVERSE PROXY ──────────────────────────────────
+- name: Configure bastion as reverse proxy
+  hosts: qa_bastion
+  become: yes
+  tasks:
+    - name: Install Nginx on bastion
+      apt:
+        name: nginx
+        state: present
+        update_cache: yes
+
+    - name: Configure Nginx reverse proxy to EC2 private
+      copy:
+        dest: /etc/nginx/sites-enabled/default
+        content: |
+          server {
+              listen 80;
+              location / {
+                  proxy_pass http://{{ ec2_private_ip }};
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_http_version 1.1;
+                  proxy_set_header Upgrade $http_upgrade;
+                  proxy_set_header Connection "upgrade";
+              }
+          }
+
+    - name: Restart Nginx on bastion
+      systemd:
+        name: nginx
+        state: restarted
+        enabled: yes
