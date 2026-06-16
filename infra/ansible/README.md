@@ -1,6 +1,6 @@
 # Ansible
 
-Automates software deployment on AWS EC2 instances — installs Docker, deploys containers, and injects secrets at runtime.
+Automates software deployment on AWS EC2 instances — installs Docker, deploys all containers, and injects secrets at runtime.
 
 Ansible runs from **GitHub Actions** via SSH through the Bastion Host. Secrets are never hardcoded.
 
@@ -10,23 +10,36 @@ Ansible runs from **GitHub Actions** via SSH through the Bastion Host. Secrets a
 
 ```
 GitHub Actions
-  └── ansible-playbook deploy-qa.yml -i "BASTION_IP,"
+  └── ansible-playbook deploy-qa.yml -i inventory
         └── SSH → Bastion Host (public subnet)
-              └── Tasks executed on Bastion:
+              └── Tasks executed on EC2:
                     ├── Free disk space (Docker prune, apt clean, log truncation)
                     ├── Install Docker (if not present)
                     ├── Create Docker network: uce-network
-                    ├── docker stop/rm postgres  → docker run postgres
-                    ├── docker stop/rm redis     → docker run redis
-                    ├── Wait for PostgreSQL to be ready
-                    ├── docker stop/rm auth-service, jobs-service, profile-service, web-app
-                    ├── docker pull auth-service, jobs-service, profile-service, web-app
-                    ├── docker run auth-service, jobs-service, profile-service, web-app
+                    │
+                    ├── Databases (idempotent — only starts if not running)
+                    │     ├── postgres
+                    │     └── redis
+                    │
+                    ├── Messaging infrastructure (idempotent)
+                    │     ├── zookeeper
+                    │     ├── kafka
+                    │     ├── rabbitmq
+                    │     └── mongodb
+                    │
+                    ├── Services (always stopped → pulled → restarted)
+                    │     ├── auth-service
+                    │     ├── jobs-service
+                    │     ├── profile-service
+                    │     ├── notification-service
+                    │     ├── matching-service
+                    │     └── web-app
+                    │
                     ├── Copy nginx.conf → docker run nginx
                     └── docker ps (verify all containers running)
 ```
 
-Secrets (`JWT_SECRET`, `PG_PASSWORD`, etc.) flow like this:
+Secrets flow like this:
 
 ```
 GitHub Secrets → GitHub Actions → Ansible -e vars → Docker -e ENV_VAR
@@ -38,19 +51,32 @@ GitHub Secrets → GitHub Actions → Ansible -e vars → Docker -e ENV_VAR
 
 ### deploy-qa.yml — QA Environment
 
-**Target:** QA Bastion (`52.20.54.196` — Elastic IP, fixed)
+**Target:** QA EC2 via self-hosted runner (Bastion `52.20.54.196` — Elastic IP)
 **Docker image tags:** `:qa`
-**Triggered by:** Push to `QA` branch via GitHub Actions
+**Triggered by:** Push to `QA` branch
 
-| Container | Image | Port | Network |
-|-----------|-------|------|---------|
-| postgres | postgres:15-alpine | 5432 (internal) | uce-network |
-| redis | redis:7-alpine | 6379 (internal) | uce-network |
-| auth-service | josephp2001/uce-auth-service:qa | 3000 | uce-network |
-| jobs-service | josephp2001/uce-jobs-service:qa | 3001 | uce-network |
-| profile-service | josephp2001/uce-profile-service:qa | 3003 | uce-network |
-| web-app | josephp2001/uce-web-app:qa | 3002 | uce-network |
-| nginx | nginx:alpine | 80 (public) | uce-network |
+#### Databases & Messaging
+
+| Container | Image | Port |
+|-----------|-------|------|
+| `postgres` | `postgres:15-alpine` | 5432 (internal) |
+| `redis` | `redis:7-alpine` | 6379 (internal) |
+| `zookeeper` | `confluentinc/cp-zookeeper:7.4.0` | 2181 (internal) |
+| `kafka` | `confluentinc/cp-kafka:7.4.0` | 9092 (internal) |
+| `rabbitmq` | `rabbitmq:3.12-management-alpine` | 5672 / 15672 (internal) |
+| `mongodb` | `mongo:7-jammy` | 27017 (internal) |
+
+#### Services
+
+| Container | Image | Port |
+|-----------|-------|------|
+| `auth-service` | `josephp2001/uce-auth-service:qa` | 3000 (internal) |
+| `jobs-service` | `josephp2001/uce-jobs-service:qa` | 3001 (internal) |
+| `web-app` | `josephp2001/uce-web-app:qa` | 3002 (internal) |
+| `profile-service` | `josephp2001/uce-profile-service:qa` | 3003 (internal) |
+| `notification-service` | `josephp2001/uce-notification-service:qa` | 3004 (internal) |
+| `matching-service` | `josephp2001/uce-matching-service:qa` | 3005 (internal) |
+| `nginx` | `nginx:alpine` | **80 (public)** |
 
 **Run manually:**
 ```bash
@@ -61,71 +87,103 @@ ansible-playbook infra/ansible/deploy-qa.yml \
   -e "jwt_secret=YOUR_SECRET" \
   -e "oauth_client_id=YOUR_ID" \
   -e "oauth_client_secret=YOUR_SECRET" \
-  -e "pg_password=YOUR_PASSWORD"
+  -e "pg_password=YOUR_PASSWORD" \
+  -e "rabbitmq_password=YOUR_PASSWORD" \
+  -e "bastion_ip=52.20.54.196"
 ```
 
 ---
 
 ### deploy-prod.yml — PROD Environment
 
-**Target:** PROD Bastion (`54.88.140.158` — Elastic IP, fixed)
+**Target:** PROD private EC2 via SSH ProxyCommand through Bastion (`54.88.140.158` — Elastic IP)
 **Docker image tags:** `:latest`
-**Triggered by:** Merge to `master` via GitHub Actions
+**Triggered by:** Merge to `master`
 
-| Container | Image | Port | Network |
-|-----------|-------|------|---------|
-| postgres | postgres:15-alpine | 5432 (internal) | uce-network |
-| redis | redis:7-alpine | 6379 (internal) | uce-network |
-| auth-service | josephp2001/uce-auth-service:latest | 3000 | uce-network |
-| jobs-service | josephp2001/uce-jobs-service:latest | 3001 | uce-network |
-| profile-service | josephp2001/uce-profile-service:latest | 3003 | uce-network |
-| web-app | josephp2001/uce-web-app:latest | 3002 | uce-network |
-| nginx | nginx:alpine | 80 (public) | uce-network |
+#### Databases & Messaging
+
+| Container | Image | Port |
+|-----------|-------|------|
+| `postgres` | `postgres:15-alpine` | 5432 (internal) |
+| `redis` | `redis:7-alpine` | 6379 (internal) |
+| `zookeeper` | `confluentinc/cp-zookeeper:7.4.0` | 2181 (internal) |
+| `kafka` | `confluentinc/cp-kafka:7.4.0` | 9092 (internal) |
+| `rabbitmq` | `rabbitmq:3.12-management-alpine` | 5672 / 15672 (internal) |
+| `mongodb` | `mongo:7-jammy` | 27017 (internal) |
+
+#### Services
+
+| Container | Image | Port |
+|-----------|-------|------|
+| `auth-service` | `josephp2001/uce-auth-service:latest` | 3000 (internal) |
+| `jobs-service` | `josephp2001/uce-jobs-service:latest` | 3001 (internal) |
+| `web-app` | `josephp2001/uce-web-app:latest` | 3002 (internal) |
+| `profile-service` | `josephp2001/uce-profile-service:latest` | 3003 (internal) |
+| `notification-service` | `josephp2001/uce-notification-service:latest` | 3004 (internal) |
+| `matching-service` | `josephp2001/uce-matching-service:latest` | 3005 (internal) |
+| `nginx` | `nginx:alpine` | **80 (public)** |
 
 **Run manually:**
 ```bash
 ansible-playbook infra/ansible/deploy-prod.yml \
-  -i "54.88.140.158," \
+  -i /tmp/prod_inventory.yml \
   --private-key ~/.ssh/PROD.pem \
-  -u ubuntu \
   -e "jwt_secret=YOUR_SECRET" \
   -e "oauth_client_id=YOUR_ID" \
   -e "oauth_client_secret=YOUR_SECRET" \
-  -e "pg_password=YOUR_PASSWORD"
+  -e "pg_password=YOUR_PASSWORD" \
+  -e "rabbitmq_password=YOUR_PASSWORD" \
+  -e "bastion_ip=54.88.140.158"
 ```
+
+> PROD uses SSH ProxyCommand through Bastion — services run on a private EC2, not the Bastion itself. The inventory is generated by the CI/CD workflow at deploy time.
 
 ---
 
 ## Disk Space Management
 
-The playbook runs three cleanup tasks **before** any `apt` or `docker pull` to prevent `no space left on device` failures:
+Three cleanup tasks run **before** any `apt` or `docker pull` to prevent `no space left on device` failures:
 
-```yaml
-- docker system prune -af --volumes   # removes unused images, containers, volumes, build cache
-- apt-get clean                        # clears apt package cache
-- journalctl --vacuum-size=50M         # truncates system logs to 50MB
+```bash
+docker system prune -af --volumes   # removes unused images, containers, volumes, build cache
+apt-get clean                        # clears apt package cache
+journalctl --vacuum-size=50M         # truncates system logs to 50MB
 ```
 
-These run every deploy and are safe — only unused resources are removed. Active containers and their volumes (`pg_data`, `redis_data`) are preserved because the stop/remove tasks run after cleanup.
+These run on every deploy and are safe — only unused resources are removed. Active containers and persistent volumes (`pg_data`, `redis_data`, `mongo_data`) are preserved.
+
+---
+
+## Startup Order
+
+Databases and messaging infrastructure use idempotent checks (`docker ps | grep -q name || docker run`) — they only start if not already running. Services always stop, pull, and restart on every deploy.
+
+```
+1. postgres, redis          (databases)
+2. Wait for PostgreSQL ready
+3. zookeeper
+4. Wait 10s
+5. kafka, rabbitmq, mongodb (messaging)
+6. Wait 15s for Kafka
+7. auth, jobs, profile, notification, matching, web-app, nginx
+```
 
 ---
 
 ## Docker Network
 
-All services share a Docker bridge network called `uce-network`. Containers reach each other by name:
+All containers share `uce-network`. They communicate by container name:
 
 | From | To | Hostname |
 |------|----|----------|
-| auth-service | Redis | `redis` |
-| jobs-service | Redis | `redis` |
-| jobs-service | PostgreSQL | `postgres` |
-| profile-service | PostgreSQL | `postgres` |
-| nginx | auth-service | `auth-service` |
-| nginx | jobs-service | `jobs-service` |
-| nginx | profile-service | `profile-service` |
-| nginx | web-app | `web-app` |
+| `auth-service` | Redis | `redis` |
+| `jobs-service` | PostgreSQL, Redis, Kafka | `postgres`, `redis`, `kafka` |
+| `profile-service` | PostgreSQL | `postgres` |
+| `notification-service` | PostgreSQL, RabbitMQ | `postgres`, `rabbitmq` |
+| `matching-service` | PostgreSQL, Kafka, RabbitMQ | `postgres`, `kafka`, `rabbitmq` |
+| `nginx` | All services | `auth-service`, `jobs-service`, etc. |
 
-No database ports are exposed to the host. Only port `80` (nginx) is public.
+No database or messaging ports are exposed to the host. Only port `80` (nginx) is public.
 
 ---
 
@@ -133,26 +191,24 @@ No database ports are exposed to the host. Only port `80` (nginx) is public.
 
 | Volume | Used by | Data |
 |--------|---------|------|
-| `pg_data` | postgres | PostgreSQL data — survives container restarts |
-| `redis_data` | redis | Redis AOF persistence |
+| `pg_data` | `postgres` | PostgreSQL data — survives container restarts |
+| `redis_data` | `redis` | Redis AOF persistence |
+| `mongo_data` | `mongodb` | MongoDB data |
 
 ---
 
 ## Secret Injection
 
-Secrets are passed as Ansible extra vars and injected as Docker environment variables at container start:
+Secrets are passed as Ansible extra vars (`-e`) and injected as Docker environment variables:
 
-```yaml
-- name: Run profile-service container
-  shell: |
-    docker run -d \
-      --name profile-service \
-      --network uce-network \
-      -e PORT=3003 \
-      -e POSTGRES_HOST=postgres \
-      -e POSTGRES_PASSWORD="{{ pg_password }}" \
-      -e JWT_SECRET="{{ jwt_secret }}" \
-      josephp2001/uce-profile-service:qa
+```
+GitHub Secrets → GitHub Actions -e → Ansible {{ var }} → Docker -e ENV_VAR
 ```
 
-The `{{ pg_password }}` is replaced by Ansible at runtime with the value passed via `-e "pg_password=..."` from GitHub Actions — which reads it from GitHub Secrets.
+| Secret | Services that use it |
+|--------|----------------------|
+| `jwt_secret` | auth-service, jobs-service, profile-service, notification-service |
+| `pg_password` | jobs-service, profile-service, notification-service, matching-service |
+| `rabbitmq_password` | notification-service, matching-service |
+| `oauth_client_id/secret` | auth-service |
+| `bastion_ip` | auth-service (`FRONTEND_URL`) |
