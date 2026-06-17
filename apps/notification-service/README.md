@@ -28,10 +28,10 @@ Consumes events from RabbitMQ (`job_created`, `new_match`) and persists notifica
     {
       "id": 1,
       "user_id": "176180233",
-      "type": "job_created",
-      "title": "Job listing published",
-      "message": "Your job listing \"Frontend Developer\" at TechCorp is now live.",
-      "metadata": { "jobId": 42 },
+      "type": "new_match",
+      "title": "New job match",
+      "message": "You matched with \"Backend Developer\" at Tech Corp with a score of 0.87.",
+      "metadata": { "jobId": 42, "score": 0.87 },
       "read": false,
       "created_at": "2026-06-14T00:00:00.000Z"
     }
@@ -47,7 +47,7 @@ Consumes events from RabbitMQ (`job_created`, `new_match`) and persists notifica
 | Queue | Published by | Payload |
 |-------|-------------|---------|
 | `job_created` | jobs-service | `{ jobId, title, company, userId }` |
-| `new_match` | matching-service (Phase 4) | `{ studentId, jobId, jobTitle, score }` |
+| `new_match` | matching-service | `{ studentId, jobId, jobTitle, score }` |
 
 Both queues are declared as `durable: true` — messages survive RabbitMQ restarts.
 
@@ -74,7 +74,6 @@ RabbitMQ
 To add a new channel (e.g. Slack), create a class implementing `INotificationChannel` and register it in `index.ts` — no existing code changes required.
 
 ```typescript
-// INotificationChannel interface
 export interface INotificationChannel {
   readonly channelName: string;
   send(payload: NotificationPayload): Promise<void>;
@@ -95,8 +94,12 @@ export interface INotificationChannel {
 | `POSTGRES_USER` | PostgreSQL user | `postgres` |
 | `POSTGRES_PASSWORD` | PostgreSQL password | injected via Ansible |
 | `JWT_SECRET` | Shared secret with auth-service | injected via Ansible |
-| `RABBITMQ_URL` | RabbitMQ connection URL | `amqp://admin:password@rabbitmq:5672` |
+| `RABBITMQ_URL` | Full RabbitMQ connection URL — takes priority over individual vars | `amqp://admin:password@rabbitmq:5672` |
 | `ALLOWED_ORIGINS` | CORS allowed origins (comma-separated) | `http://localhost:3002` |
+
+> **Note:** The service resolves the RabbitMQ connection string as:
+> `RABBITMQ_URL ?? amqp://admin:${RABBITMQ_PASSWORD}@rabbitmq:5672`
+> Always prefer setting `RABBITMQ_URL` directly in deployment environments.
 
 ---
 
@@ -125,10 +128,11 @@ CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created
 
 Available at `/api-docs` when the service is running:
 
-```
-http://localhost:3004/api-docs           # local
-http://98.86.126.222/api/notification-docs    # QA (via Nginx)
-```
+| Environment | URL |
+|-------------|-----|
+| Local | `http://localhost:3004/api-docs` |
+| QA | `http://98.86.126.222/api/notification-docs` |
+| PROD | `http://josheponcepro1.distribuidauce.org/api/notification-docs` |
 
 ---
 
@@ -175,6 +179,6 @@ docker run -d \
 ## CI/CD
 
 ```
-push to QA → npm test → docker build → docker push :qa → ansible deploy QA
-merge to master → npm test → docker build → docker push :latest → ansible deploy PROD
+push to QA     → npm test → docker build → docker push :qa      → ansible deploy QA
+merge to master → npm test → docker build → docker push :latest  → ansible deploy PROD
 ```

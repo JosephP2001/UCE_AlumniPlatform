@@ -80,11 +80,10 @@ jobs:
           push: true
           tags: josephp2001/uce-web-app:latest
           build-args: |
-            NEXT_PUBLIC_AUTH_URL=http://josheponcepro1.distribuidauce.org
-            NEXT_PUBLIC_JOBS_URL=http://josheponcepro1.distribuidauce.org
-            NEXT_PUBLIC_PROFILE_URL=http://josheponcepro1.distribuidauce.org
-            NEXT_PUBLIC_NOTIFICATIONS_URL=http://josheponcepro1.distribuidauce.org
-
+            NEXT_PUBLIC_AUTH_URL=https://josheponcepro1.distribuidauce.org
+            NEXT_PUBLIC_JOBS_URL=https://josheponcepro1.distribuidauce.org
+            NEXT_PUBLIC_PROFILE_URL=https://josheponcepro1.distribuidauce.org
+            NEXT_PUBLIC_NOTIFICATIONS_URL=https://josheponcepro1.distribuidauce.org
   deploy:
     runs-on: ubuntu-latest
     needs: test-and-build
