@@ -5,13 +5,12 @@ import rateLimit from 'express-rate-limit';
 import swaggerUi from 'swagger-ui-express';
 import jwt from 'jsonwebtoken';
 import { initDb } from './services/db.service';
-import { connectRabbitMQ } from './services/rabbitmq.service';
+import { connectRabbitMQ, getBreakerStatus } from './services/rabbitmq.service';
 import { connectMQTT } from './services/mqtt.service';
 import { startConsumers } from './consumers/notification.consumer';
 import { notificationRouter } from './routes/notifications.routes';
 import { swaggerSpec } from './swagger';
 import logger from './logger';
-
 dotenv.config();
 
 const app = express();
@@ -69,6 +68,9 @@ app.get('/health', (_req: Request, res: Response) => {
     status: 'ok',
     service: 'notification-service',
     timestamp: new Date().toISOString(),
+    circuit_breaker: {
+      rabbitmq: getBreakerStatus(),
+    },
   });
 });
 
