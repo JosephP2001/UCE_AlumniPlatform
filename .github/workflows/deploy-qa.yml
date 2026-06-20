@@ -111,5 +111,6 @@ jobs:
             -e "oauth_client_secret=${{ secrets.QA_OAUTH_CLIENT_SECRET }}" \
             -e "pg_password=${{ secrets.PG_PASSWORD }}" \
             -e "rabbitmq_password=${{ secrets.RABBITMQ_PASSWORD }}" \
+            -e "postgres_replicator_password=${{ secrets.POSTGRES_REPLICATOR_PASSWORD }}" \
             -e "bastion_ip=${{ secrets.QA_BASTION_IP }}" \
             -e "ec2_private_ip=${{ secrets.QA_AUTH_JOBS_IP }}"

@@ -120,6 +120,21 @@
         done
         exit 1
 
+    # ── POSTGRESQL REPLICATION SETUP — IDEMPOTENT ──────────────
+
+    - name: Ensure replication user exists in PostgreSQL
+      shell: |
+        docker exec postgres psql -U postgres -tc "SELECT 1 FROM pg_roles WHERE rolname='replicator'" | grep -q 1 || \
+        docker exec postgres psql -U postgres -c "CREATE USER replicator WITH REPLICATION ENCRYPTED PASSWORD '{{ postgres_replicator_password }}';"
+
+    - name: Ensure pg_hba.conf allows replication from Docker network
+      shell: |
+        docker exec postgres grep -q "host replication replicator 172.18.0.0/16" /var/lib/postgresql/data/pg_hba.conf || \
+        docker exec postgres bash -c "echo 'host replication replicator 172.18.0.0/16 md5' >> /var/lib/postgresql/data/pg_hba.conf"
+
+    - name: Reload PostgreSQL config to apply pg_hba.conf changes
+      shell: docker exec postgres psql -U postgres -c "SELECT pg_reload_conf();"
+
     # ── MESSAGING INFRASTRUCTURE — IDEMPOTENT ──────────────────
 
     - name: Ensure Zookeeper is running
@@ -172,6 +187,19 @@
           -e MONGO_INITDB_DATABASE=profiles_db \
           -v mongo_data:/data/db \
           mongo:7-jammy
+
+
+    - name: Ensure Mosquitto (MQTT broker) is running
+      shell: |
+        docker ps --filter "name=mosquitto" --filter "status=running" | grep -q mosquitto || \
+        docker run -d \
+          --name mosquitto \
+          --network uce-network \
+          --restart always \
+          -p 1883:1883 \
+          eclipse-mosquitto:2.0 \
+          sh -c "mkdir -p /mosquitto/config && echo -e 'listener 1883\nallow_anonymous true' > /mosquitto/config/mosquitto.conf && mosquitto -c /mosquitto/config/mosquitto.conf"
+
 
     - name: Wait for Kafka to be ready
       shell: sleep 15
@@ -284,6 +312,7 @@
           -e JWT_SECRET="{{ jwt_secret }}" \
           -e "RABBITMQ_URL=amqp://admin:{{ rabbitmq_password }}@rabbitmq:5672" \
           -e "ALLOWED_ORIGINS=http://{{ bastion_ip }}" \
+          -e "MQTT_URL=mqtt://mosquitto:1883" \
           josephp2001/uce-notification-service:qa
 
     - name: Run matching-service container
