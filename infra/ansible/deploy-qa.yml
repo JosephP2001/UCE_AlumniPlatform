@@ -193,27 +193,11 @@
     - name: Stop and remove matching-service container
       shell: docker stop matching-service && docker rm matching-service || true
 
-    - name: Pull matching-service image
-      shell: docker pull josephp2001/uce-matching-service:qa
-
-    - name: Run matching-service container
-      shell: |
-        docker run -d \
-          --name matching-service \
-          --network uce-network \
-          --restart always \
-          -e PORT=3005 \
-          -e POSTGRES_HOST=postgres \
-          -e POSTGRES_PORT=5432 \
-          -e POSTGRES_DB=jobs_db \
-          -e POSTGRES_USER=postgres \
-          -e 'POSTGRES_PASSWORD={{ pg_password }}' \
-          -e KAFKA_BROKER=kafka:9092 \
-          -e 'RABBITMQ_PASSWORD={{ rabbitmq_password }}' \
-          josephp2001/uce-matching-service:qa
-
     - name: Stop and remove web-app container
       shell: docker stop web-app && docker rm web-app || true
+
+    - name: Pull matching-service image
+      shell: docker pull josephp2001/uce-matching-service:qa
 
     - name: Pull auth-service image
       shell: docker pull josephp2001/uce-auth-service:qa
@@ -244,6 +228,7 @@
           -e REDIS_HOST=redis \
           -e REDIS_PORT=6379 \
           -e "FRONTEND_URL=http://{{ bastion_ip }}" \
+          -e "ALLOWED_ORIGINS=http://{{ bastion_ip }}" \
           josephp2001/uce-auth-service:qa
 
     - name: Run jobs-service container
@@ -263,6 +248,7 @@
           -e REDIS_PORT=6379 \
           -e JWT_SECRET="{{ jwt_secret }}" \
           -e KAFKA_BROKER=kafka:9092 \
+          -e "ALLOWED_ORIGINS=http://{{ bastion_ip }}" \
           josephp2001/uce-jobs-service:qa
 
     - name: Run profile-service container
@@ -279,6 +265,7 @@
           -e POSTGRES_USER=postgres \
           -e 'POSTGRES_PASSWORD={{ pg_password }}' \
           -e JWT_SECRET="{{ jwt_secret }}" \
+          -e "ALLOWED_ORIGINS=http://{{ bastion_ip }}" \
           josephp2001/uce-profile-service:qa
 
     - name: Run notification-service container
@@ -296,7 +283,24 @@
           -e 'POSTGRES_PASSWORD={{ pg_password }}' \
           -e JWT_SECRET="{{ jwt_secret }}" \
           -e "RABBITMQ_URL=amqp://admin:{{ rabbitmq_password }}@rabbitmq:5672" \
+          -e "ALLOWED_ORIGINS=http://{{ bastion_ip }}" \
           josephp2001/uce-notification-service:qa
+
+    - name: Run matching-service container
+      shell: |
+        docker run -d \
+          --name matching-service \
+          --network uce-network \
+          --restart always \
+          -e PORT=3005 \
+          -e POSTGRES_HOST=postgres \
+          -e POSTGRES_PORT=5432 \
+          -e POSTGRES_DB=jobs_db \
+          -e POSTGRES_USER=postgres \
+          -e 'POSTGRES_PASSWORD={{ pg_password }}' \
+          -e KAFKA_BROKER=kafka:9092 \
+          -e 'RABBITMQ_PASSWORD={{ rabbitmq_password }}' \
+          josephp2001/uce-matching-service:qa
 
     - name: Run web-app container
       shell: |
