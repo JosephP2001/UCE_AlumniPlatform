@@ -6,6 +6,7 @@ import swaggerUi from 'swagger-ui-express';
 import jwt from 'jsonwebtoken';
 import { initDb } from './services/db.service';
 import { connectRabbitMQ } from './services/rabbitmq.service';
+import { connectMQTT } from './services/mqtt.service';
 import { startConsumers } from './consumers/notification.consumer';
 import { notificationRouter } from './routes/notifications.routes';
 import { swaggerSpec } from './swagger';
@@ -72,7 +73,6 @@ app.get('/health', (_req: Request, res: Response) => {
 });
 
 // ── ROUTES ────────────────────────────────────────────────
-// GET /notifications/:userId and PUT /notifications/:id/read require JWT
 app.use('/notifications', (req: Request, res: Response, next: NextFunction) => {
   if (req.method === 'GET' || req.method === 'PUT') {
     return requireAuth(req, res, next);
@@ -88,6 +88,14 @@ const start = async (): Promise<void> => {
     await initDb();
     const channel = await connectRabbitMQ();
     await startConsumers(channel);
+
+    // MQTT — non-blocking, service starts even if broker is down
+    connectMQTT().catch((err) =>
+      logger.warn('MQTT broker not ready on startup — will retry automatically', {
+        err: err.message,
+      })
+    );
+
     app.listen(PORT, () => {
       logger.info('notification-service started', {
         port: PORT,
