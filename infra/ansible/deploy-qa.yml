@@ -445,10 +445,20 @@
         state: directory
         mode: '0755'
 
+    # ── DIAGNOSTIC: async/poll converts a silent hang into a fast,
+    # explicit failure with a clear error message. TEMPORARY — revert
+    # to a plain `shell:` task once the root cause is found and fixed.
     - name: Add Docker GPG key
       shell: |
         curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
         chmod a+r /etc/apt/keyrings/docker.gpg
+      async: 30
+      poll: 5
+      register: docker_gpg_result
+
+    - name: Show Docker GPG key task result (diagnostic)
+      debug:
+        var: docker_gpg_result
 
     - name: Add Docker repository
       shell: |
