@@ -96,6 +96,7 @@
           --name postgres \
           --network uce-network \
           --restart always \
+          -p 5432:5432 \
           -e POSTGRES_DB=jobs_db \
           -e POSTGRES_USER=postgres \
           -e POSTGRES_PASSWORD="{{ pg_password }}" \
@@ -132,15 +133,12 @@
         docker exec postgres grep -q "host replication replicator 172.18.0.0/16" /var/lib/postgresql/data/pg_hba.conf || \
         docker exec postgres bash -c "echo 'host replication replicator 172.18.0.0/16 md5' >> /var/lib/postgresql/data/pg_hba.conf"
 
-    - name: Reload PostgreSQL config to apply pg_hba.conf changes
-      shell: docker exec postgres psql -U postgres -c "SELECT pg_reload_conf();"
-
-    - name: Ensure pg_hba.conf allows replication from the whole VPC (for the replica EC2 in a different subnet)
+    - name: Ensure pg_hba.conf allows replication from whole VPC (replica EC2 in us-east-1b)
       shell: |
         docker exec postgres grep -q "host replication replicator 10.0.0.0/16" /var/lib/postgresql/data/pg_hba.conf || \
         docker exec postgres bash -c "echo 'host replication replicator 10.0.0.0/16 md5' >> /var/lib/postgresql/data/pg_hba.conf"
 
-    - name: Reload PostgreSQL config to apply VPC-wide replication rule
+    - name: Reload PostgreSQL config
       shell: docker exec postgres psql -U postgres -c "SELECT pg_reload_conf();"
 
     # ── MESSAGING INFRASTRUCTURE — IDEMPOTENT ──────────────────
@@ -196,7 +194,6 @@
           -v mongo_data:/data/db \
           mongo:7-jammy
 
-
     - name: Ensure Mosquitto (MQTT broker) is running
       shell: |
         docker ps --filter "name=mosquitto" --filter "status=running" | grep -q mosquitto || \
@@ -207,7 +204,6 @@
           -p 1883:1883 \
           eclipse-mosquitto:2.0 \
           sh -c "mkdir -p /mosquitto/config && echo -e 'listener 1883\nallow_anonymous true' > /mosquitto/config/mosquitto.conf && mosquitto -c /mosquitto/config/mosquitto.conf"
-
 
     - name: Wait for Kafka to be ready
       shell: sleep 15
@@ -419,8 +415,6 @@
   gather_facts: yes
   tasks:
 
-    # ── DOCKER SETUP (same pattern as qa_ec2) ──────────────────
-
     - name: Remove broken Docker repository
       file:
         path: /etc/apt/sources.list.d/docker.list
@@ -445,20 +439,17 @@
         state: directory
         mode: '0755'
 
-    # ── DIAGNOSTIC: async/poll converts a silent hang into a fast,
-    # explicit failure with a clear error message. TEMPORARY — revert
-    # to a plain `shell:` task once the root cause is found and fixed.
+    # async/poll used here to prevent a silent hang on the SSH ControlMaster
+    # connection multiplexed through the bastion. Root cause: interaction
+    # between Ansible's -tt flag, sudo use_pty, and ControlMaster over a
+    # ProxyJump connection. async runs the command in background on the
+    # remote host, avoiding the blocking wait that causes the hang.
     - name: Add Docker GPG key
       shell: |
         curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
         chmod a+r /etc/apt/keyrings/docker.gpg
       async: 30
       poll: 5
-      register: docker_gpg_result
-
-    - name: Show Docker GPG key task result (diagnostic)
-      debug:
-        var: docker_gpg_result
 
     - name: Add Docker repository
       shell: |
@@ -480,19 +471,10 @@
         state: started
         enabled: yes
 
-    # ── REPLICA — IDEMPOTENT ───────────────────────────────────
-    # On first run: pg_basebackup clones the primary into an empty volume,
-    # then the container starts in standby mode reading recovery settings
-    # from postgresql.auto.conf (written automatically by pg_basebackup -R).
-    # On subsequent runs: the volume already has data, so the container
-    # just restarts in standby mode without re-cloning.
-    #
-    # NOTE: -p 5432:5432 exposes the port to the HOST network of this EC2,
-    # not the Docker bridge network — so the primary's pg_hba.conf must
-    # allow connections from this EC2's real IP (10.0.4.x), not just from
-    # the Docker network CIDR (172.18.0.0/16). That's why the qa_ec2 play
-    # above also adds a "10.0.0.0/16" rule, covering the whole VPC.
-
+    # On first run: pg_basebackup clones the primary (10.0.3.201:5432)
+    # into an empty volume and writes postgresql.auto.conf (via -R flag)
+    # so the container starts in standby/recovery mode automatically.
+    # On subsequent runs: volume already has data, container just restarts.
     - name: Ensure postgres-replica is running
       shell: |
         docker ps --filter "name=postgres-replica" --filter "status=running" | grep -q postgres-replica && exit 0
@@ -518,8 +500,7 @@
       shell: sleep 10
 
     - name: Verify replica is in recovery mode
-      shell: |
-        docker exec postgres-replica psql -U postgres -tc "SELECT pg_is_in_recovery();"
+      shell: docker exec postgres-replica psql -U postgres -tc "SELECT pg_is_in_recovery();"
       register: replica_status
 
     - name: Show replica status
