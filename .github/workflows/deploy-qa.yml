@@ -168,7 +168,7 @@ jobs:
           echo "[qa_bastion]" >> /tmp/qa_inventory.ini
           echo "localhost ansible_connection=local" >> /tmp/qa_inventory.ini
           echo "[qa_replica]" >> /tmp/qa_inventory.ini
-          echo "${{ secrets.QA_REPLICA_IP }} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/QA.pem ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ProxyJump=ubuntu@${{ secrets.QA_BASTION_IP }}'" >> /tmp/qa_inventory.ini
+          echo "${{ secrets.QA_REPLICA_IP }} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/QA.pem ansible_ssh_common_args='-o StrictHostKeyChecking=no'" >> /tmp/qa_inventory.ini
 
       - name: Deploy via Ansible
         run: |
