@@ -234,7 +234,7 @@
           -e OAUTH_CLIENT_SECRET="{{ oauth_client_secret }}" \
           -e REDIS_HOST=redis \
           -e REDIS_PORT=6379 \
-          -e FRONTEND_URL=http://josheponcepro1.distribuidauce.org \
+          -e FRONTEND_URL=https://josheponcepro1.distribuidauce.org \
           josephp2001/uce-auth-service:latest
 
     - name: Run jobs-service container
