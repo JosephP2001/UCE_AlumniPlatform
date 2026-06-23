@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.env
+*.pem
+AGENTS.md
+CLAUDE.md

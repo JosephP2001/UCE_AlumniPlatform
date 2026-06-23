@@ -1,0 +1,508 @@
+---
+- name: Deploy QA services
+  hosts: qa_ec2
+  become: yes
+  gather_facts: yes
+  tasks:
+
+    # ── FREE DISK SPACE FIRST ──────────────────────────────────
+
+    - name: Prune unused Docker images, containers, volumes and cache
+      shell: docker system prune -af --volumes || true
+
+    - name: Clean apt cache
+      shell: apt-get clean && rm -rf /var/lib/apt/lists/* || true
+
+    - name: Truncate large log files
+      shell: |
+        find /var/log -type f -name "*.log" -size +10M -exec truncate -s 0 {} \; || true
+        journalctl --vacuum-size=50M || true
+
+    # ── DOCKER SETUP ───────────────────────────────────────────
+
+    - name: Remove broken Docker repository
+      file:
+        path: /etc/apt/sources.list.d/docker.list
+        state: absent
+
+    - name: Remove broken Kubernetes repository
+      file:
+        path: /etc/apt/sources.list.d/kubernetes.list
+        state: absent
+
+    - name: Clean apt cache
+      shell: apt-get clean && apt-get update --allow-insecure-repositories || true
+
+    - name: Install dependencies
+      apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - git
+        state: present
+        update_cache: yes
+
+    - name: Create Docker keyring directory
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Remove old Docker GPG key
+      file:
+        path: /etc/apt/keyrings/docker.gpg
+        state: absent
+
+    - name: Add Docker GPG key
+      shell: |
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        chmod a+r /etc/apt/keyrings/docker.gpg
+
+    - name: Remove old Docker repository
+      file:
+        path: /etc/apt/sources.list.d/docker.list
+        state: absent
+
+    - name: Add Docker repository
+      shell: |
+        echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+    - name: Install Docker
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+
+    - name: Start and enable Docker
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Create Docker network
+      shell: docker network create uce-network || true
+
+    # ── DATABASES — IDEMPOTENT ─────────────────────────────────
+
+    - name: Ensure PostgreSQL is running
+      shell: |
+        docker ps --filter "name=postgres" --filter "status=running" | grep -q postgres || \
+        docker run -d \
+          --name postgres \
+          --network uce-network \
+          --restart always \
+          -p 5432:5432 \
+          -e POSTGRES_DB=jobs_db \
+          -e POSTGRES_USER=postgres \
+          -e POSTGRES_PASSWORD="{{ pg_password }}" \
+          -v pg_data:/var/lib/postgresql/data \
+          postgres:15-alpine
+
+    - name: Ensure Redis is running
+      shell: |
+        docker ps --filter "name=redis" --filter "status=running" | grep -q redis || \
+        docker run -d \
+          --name redis \
+          --network uce-network \
+          --restart always \
+          -v redis_data:/data \
+          redis:7-alpine
+
+    - name: Wait for PostgreSQL to be ready
+      shell: |
+        for i in $(seq 1 15); do
+          docker exec postgres pg_isready -U postgres && exit 0
+          sleep 2
+        done
+        exit 1
+
+    # ── POSTGRESQL REPLICATION SETUP — IDEMPOTENT ──────────────
+
+    - name: Ensure replication user exists in PostgreSQL
+      shell: |
+        docker exec postgres psql -U postgres -tc "SELECT 1 FROM pg_roles WHERE rolname='replicator'" | grep -q 1 || \
+        docker exec postgres psql -U postgres -c "CREATE USER replicator WITH REPLICATION ENCRYPTED PASSWORD '{{ postgres_replicator_password }}';"
+
+    - name: Ensure pg_hba.conf allows replication from Docker network
+      shell: |
+        docker exec postgres grep -q "host replication replicator 172.18.0.0/16" /var/lib/postgresql/data/pg_hba.conf || \
+        docker exec postgres bash -c "echo 'host replication replicator 172.18.0.0/16 md5' >> /var/lib/postgresql/data/pg_hba.conf"
+
+    - name: Ensure pg_hba.conf allows replication from whole VPC (replica EC2 in us-east-1b)
+      shell: |
+        docker exec postgres grep -q "host replication replicator 10.0.0.0/16" /var/lib/postgresql/data/pg_hba.conf || \
+        docker exec postgres bash -c "echo 'host replication replicator 10.0.0.0/16 md5' >> /var/lib/postgresql/data/pg_hba.conf"
+
+    - name: Reload PostgreSQL config
+      shell: docker exec postgres psql -U postgres -c "SELECT pg_reload_conf();"
+
+    # ── MESSAGING INFRASTRUCTURE — IDEMPOTENT ──────────────────
+
+    - name: Ensure Zookeeper is running
+      shell: |
+        docker ps --filter "name=zookeeper" --filter "status=running" | grep -q zookeeper || \
+        docker run -d \
+          --name zookeeper \
+          --network uce-network \
+          --restart always \
+          -e ZOOKEEPER_CLIENT_PORT=2181 \
+          -e ZOOKEEPER_TICK_TIME=2000 \
+          confluentinc/cp-zookeeper:7.4.0
+
+    - name: Wait for Zookeeper to be ready
+      shell: sleep 10
+
+    - name: Ensure Kafka is running
+      shell: |
+        docker ps --filter "name=kafka" --filter "status=running" | grep -q kafka || \
+        docker run -d \
+          --name kafka \
+          --network uce-network \
+          --restart always \
+          -e KAFKA_BROKER_ID=1 \
+          -e KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181 \
+          -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092 \
+          -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
+          -e KAFKA_AUTO_CREATE_TOPICS_ENABLE=true \
+          confluentinc/cp-kafka:7.4.0
+
+    - name: Ensure RabbitMQ is running
+      shell: |
+        docker ps --filter "name=rabbitmq" --filter "status=running" | grep -q rabbitmq || \
+        docker run -d \
+          --name rabbitmq \
+          --network uce-network \
+          --restart always \
+          -e RABBITMQ_DEFAULT_USER=admin \
+          -e RABBITMQ_DEFAULT_PASS="{{ rabbitmq_password }}" \
+          -e RABBITMQ_DEFAULT_VHOST=/ \
+          rabbitmq:3.12-management-alpine
+
+    - name: Ensure MongoDB is running
+      shell: |
+        docker ps --filter "name=mongodb" --filter "status=running" | grep -q mongodb || \
+        docker run -d \
+          --name mongodb \
+          --network uce-network \
+          --restart always \
+          -e MONGO_INITDB_DATABASE=profiles_db \
+          -v mongo_data:/data/db \
+          mongo:7-jammy
+
+    - name: Ensure Mosquitto (MQTT broker) is running
+      shell: |
+        docker ps --filter "name=mosquitto" --filter "status=running" | grep -q mosquitto || \
+        docker run -d \
+          --name mosquitto \
+          --network uce-network \
+          --restart always \
+          -p 1883:1883 \
+          eclipse-mosquitto:2.0 \
+          sh -c "mkdir -p /mosquitto/config && echo -e 'listener 1883\nallow_anonymous true' > /mosquitto/config/mosquitto.conf && mosquitto -c /mosquitto/config/mosquitto.conf"
+
+    - name: Wait for Kafka to be ready
+      shell: sleep 15
+
+    # ── SERVICES ───────────────────────────────────────────────
+
+    - name: Stop and remove auth-service container
+      shell: docker stop auth-service && docker rm auth-service || true
+
+    - name: Stop and remove jobs-service container
+      shell: docker stop jobs-service && docker rm jobs-service || true
+
+    - name: Stop and remove profile-service container
+      shell: docker stop profile-service && docker rm profile-service || true
+
+    - name: Stop and remove notification-service container
+      shell: docker stop notification-service && docker rm notification-service || true
+
+    - name: Stop and remove matching-service container
+      shell: docker stop matching-service && docker rm matching-service || true
+
+    - name: Stop and remove web-app container
+      shell: docker stop web-app && docker rm web-app || true
+
+    - name: Pull matching-service image
+      shell: docker pull josephp2001/uce-matching-service:qa
+
+    - name: Pull auth-service image
+      shell: docker pull josephp2001/uce-auth-service:qa
+
+    - name: Pull jobs-service image
+      shell: docker pull josephp2001/uce-jobs-service:qa
+
+    - name: Pull profile-service image
+      shell: docker pull josephp2001/uce-profile-service:qa
+
+    - name: Pull notification-service image
+      shell: docker pull josephp2001/uce-notification-service:qa
+
+    - name: Pull web-app image
+      shell: docker pull josephp2001/uce-web-app:qa
+
+    - name: Run auth-service container
+      shell: |
+        docker run -d \
+          --name auth-service \
+          --network uce-network \
+          --restart always \
+          -e NODE_ENV=production \
+          -e PORT=3000 \
+          -e JWT_SECRET="{{ jwt_secret }}" \
+          -e OAUTH_CLIENT_ID="{{ oauth_client_id }}" \
+          -e OAUTH_CLIENT_SECRET="{{ oauth_client_secret }}" \
+          -e REDIS_HOST=redis \
+          -e REDIS_PORT=6379 \
+          -e "FRONTEND_URL=http://{{ bastion_ip }}" \
+          -e "ALLOWED_ORIGINS=http://{{ bastion_ip }}" \
+          josephp2001/uce-auth-service:qa
+
+    - name: Run jobs-service container
+      shell: |
+        docker run -d \
+          --name jobs-service \
+          --network uce-network \
+          --restart always \
+          -e NODE_ENV=production \
+          -e PORT=3001 \
+          -e PG_HOST=postgres \
+          -e PG_PORT=5432 \
+          -e PG_DATABASE=jobs_db \
+          -e PG_USER=postgres \
+          -e 'PG_PASSWORD={{ pg_password }}' \
+          -e REDIS_HOST=redis \
+          -e REDIS_PORT=6379 \
+          -e JWT_SECRET="{{ jwt_secret }}" \
+          -e KAFKA_BROKER=kafka:9092 \
+          -e "ALLOWED_ORIGINS=http://{{ bastion_ip }}" \
+          josephp2001/uce-jobs-service:qa
+
+    - name: Run profile-service container
+      shell: |
+        docker run -d \
+          --name profile-service \
+          --network uce-network \
+          --restart always \
+          -e NODE_ENV=production \
+          -e PORT=3003 \
+          -e POSTGRES_HOST=postgres \
+          -e POSTGRES_PORT=5432 \
+          -e POSTGRES_DB=jobs_db \
+          -e POSTGRES_USER=postgres \
+          -e 'POSTGRES_PASSWORD={{ pg_password }}' \
+          -e JWT_SECRET="{{ jwt_secret }}" \
+          -e "ALLOWED_ORIGINS=http://{{ bastion_ip }}" \
+          josephp2001/uce-profile-service:qa
+
+    - name: Run notification-service container
+      shell: |
+        docker run -d \
+          --name notification-service \
+          --network uce-network \
+          --restart always \
+          -e NODE_ENV=production \
+          -e PORT=3004 \
+          -e POSTGRES_HOST=postgres \
+          -e POSTGRES_PORT=5432 \
+          -e POSTGRES_DB=jobs_db \
+          -e POSTGRES_USER=postgres \
+          -e 'POSTGRES_PASSWORD={{ pg_password }}' \
+          -e JWT_SECRET="{{ jwt_secret }}" \
+          -e "RABBITMQ_URL=amqp://admin:{{ rabbitmq_password }}@rabbitmq:5672" \
+          -e "ALLOWED_ORIGINS=http://{{ bastion_ip }}" \
+          -e "MQTT_URL=mqtt://mosquitto:1883" \
+          josephp2001/uce-notification-service:qa
+
+    - name: Run matching-service container
+      shell: |
+        docker run -d \
+          --name matching-service \
+          --network uce-network \
+          --restart always \
+          -e PORT=3005 \
+          -e POSTGRES_HOST=postgres \
+          -e POSTGRES_PORT=5432 \
+          -e POSTGRES_DB=jobs_db \
+          -e POSTGRES_USER=postgres \
+          -e 'POSTGRES_PASSWORD={{ pg_password }}' \
+          -e KAFKA_BROKER=kafka:9092 \
+          -e 'RABBITMQ_PASSWORD={{ rabbitmq_password }}' \
+          josephp2001/uce-matching-service:qa
+
+    - name: Run web-app container
+      shell: |
+        docker run -d \
+          --name web-app \
+          --network uce-network \
+          --restart always \
+          -e NODE_ENV=production \
+          josephp2001/uce-web-app:qa
+
+    # ── NGINX ──────────────────────────────────────────────────
+
+    - name: Copy Nginx config to host
+      copy:
+        src: "{{ playbook_dir }}/../nginx/nginx.conf"
+        dest: /home/ubuntu/nginx.conf
+        mode: '0644'
+
+    - name: Stop and remove nginx container
+      shell: docker stop nginx && docker rm nginx || true
+
+    - name: Run Nginx container
+      shell: |
+        docker run -d \
+          --name nginx \
+          --network uce-network \
+          --restart always \
+          -p 80:80 \
+          -v /home/ubuntu/nginx.conf:/etc/nginx/nginx.conf:ro \
+          nginx:alpine
+
+    # ── VERIFY ─────────────────────────────────────────────────
+
+    - name: Verify containers are running
+      shell: docker ps
+      register: docker_ps
+
+    - name: Show running containers
+      debug:
+        var: docker_ps.stdout_lines
+
+# ── BASTION REVERSE PROXY ──────────────────────────────────
+- name: Configure bastion as reverse proxy
+  hosts: qa_bastion
+  become: yes
+  tasks:
+    - name: Install Nginx on bastion
+      apt:
+        name: nginx
+        state: present
+        update_cache: yes
+
+    - name: Configure Nginx reverse proxy to EC2 private
+      copy:
+        dest: /etc/nginx/sites-enabled/default
+        content: |
+          server {
+              listen 80;
+              location / {
+                  proxy_pass http://{{ ec2_private_ip }};
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_http_version 1.1;
+                  proxy_set_header Upgrade $http_upgrade;
+                  proxy_set_header Connection "upgrade";
+              }
+          }
+
+    - name: Restart Nginx on bastion
+      systemd:
+        name: nginx
+        state: restarted
+        enabled: yes
+
+# ── POSTGRESQL REPLICA ──────────────────────────────────────
+- name: Configure PostgreSQL streaming replica
+  hosts: qa_replica
+  become: yes
+  gather_facts: yes
+  tasks:
+
+    - name: Remove broken Docker repository
+      file:
+        path: /etc/apt/sources.list.d/docker.list
+        state: absent
+
+    - name: Clean apt cache
+      shell: apt-get clean && apt-get update --allow-insecure-repositories || true
+
+    - name: Install dependencies
+      apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - git
+        state: present
+        update_cache: yes
+
+    - name: Create Docker keyring directory
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    # async/poll used here to prevent a silent hang on the SSH ControlMaster
+    # connection multiplexed through the bastion. Root cause: interaction
+    # between Ansible's -tt flag, sudo use_pty, and ControlMaster over a
+    # ProxyJump connection. async runs the command in background on the
+    # remote host, avoiding the blocking wait that causes the hang.
+    - name: Add Docker GPG key
+      shell: |
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        chmod a+r /etc/apt/keyrings/docker.gpg
+      async: 30
+      poll: 5
+
+    - name: Add Docker repository
+      shell: |
+        echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+    - name: Install Docker
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+
+    - name: Start and enable Docker
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    # On first run: pg_basebackup clones the primary (10.0.3.201:5432)
+    # into an empty volume and writes postgresql.auto.conf (via -R flag)
+    # so the container starts in standby/recovery mode automatically.
+    # On subsequent runs: volume already has data, container just restarts.
+    - name: Ensure postgres-replica is running
+      shell: |
+        docker ps --filter "name=postgres-replica" --filter "status=running" | grep -q postgres-replica && exit 0
+
+        docker run -d \
+          --name postgres-replica \
+          --restart always \
+          -p 5432:5432 \
+          -e POSTGRES_PASSWORD="{{ pg_password }}" \
+          -e PGUSER=replicator \
+          -e PGPASSWORD="{{ postgres_replicator_password }}" \
+          -v pg_replica_data:/var/lib/postgresql/data \
+          postgres:15-alpine \
+          bash -c "
+            if [ -z \"\$(ls -A /var/lib/postgresql/data)\" ]; then
+              pg_basebackup -h {{ ec2_private_ip }} -p 5432 -U replicator -D /var/lib/postgresql/data -Fp -Xs -P -R
+              chmod 0700 /var/lib/postgresql/data
+            fi
+            exec docker-entrypoint.sh postgres
+          "
+
+    - name: Wait for replica to start streaming
+      shell: sleep 10
+
+    - name: Verify replica is in recovery mode
+      shell: docker exec postgres-replica psql -U postgres -tc "SELECT pg_is_in_recovery();"
+      register: replica_status
+
+    - name: Show replica status
+      debug:
+        var: replica_status.stdout_lines

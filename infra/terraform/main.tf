@@ -1,0 +1,373 @@
+# ─────────────────────────────────────────
+# TERRAFORM BACKEND — S3 remote state QA
+# ─────────────────────────────────────────
+terraform {
+  required_version = ">= 1.5.0"
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+  backend "s3" {
+    bucket       = "uce-alumni-tfstate-qa-026658"
+    key          = "qa/terraform.tfstate"
+    region       = "us-east-1"
+    use_lockfile = true
+    encrypt      = true
+  }
+}
+
+provider "aws" {
+  region = "us-east-1"
+}
+
+# ─────────────────────────────────────────
+# VPC
+# ─────────────────────────────────────────
+resource "aws_vpc" "main" {
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+  tags = { Name = "uce-qa-vpc" }
+}
+
+# ─────────────────────────────────────────
+# SUBNETS
+# ─────────────────────────────────────────
+resource "aws_subnet" "public_1a" {
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.1.0/24"
+  availability_zone       = "us-east-1a"
+  map_public_ip_on_launch = true
+  tags = { Name = "uce-qa-public-1a" }
+}
+
+resource "aws_subnet" "private_1a" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.3.0/24"
+  availability_zone = "us-east-1a"
+  tags = { Name = "uce-qa-private-1a" }
+}
+
+# ── NEW: second private subnet in us-east-1b for the replica ──
+resource "aws_subnet" "private_1b" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.4.0/24"
+  availability_zone = "us-east-1b"
+  tags = { Name = "uce-qa-private-1b" }
+}
+
+resource "aws_route_table_association" "private_1b" {
+  subnet_id      = aws_subnet.private_1b.id
+  route_table_id = aws_route_table.private.id
+}
+
+# ─────────────────────────────────────────
+# INTERNET GATEWAY
+# ─────────────────────────────────────────
+resource "aws_internet_gateway" "igw" {
+  vpc_id = aws_vpc.main.id
+  tags = { Name = "uce-qa-igw" }
+}
+
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.main.id
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.igw.id
+  }
+  tags = { Name = "uce-qa-public-rt" }
+}
+
+resource "aws_route_table_association" "public_1a" {
+  subnet_id      = aws_subnet.public_1a.id
+  route_table_id = aws_route_table.public.id
+}
+
+# ─────────────────────────────────────────
+# NAT GATEWAY
+# ─────────────────────────────────────────
+resource "aws_eip" "nat" {
+  domain     = "vpc"
+  tags       = { Name = "uce-qa-nat-eip" }
+}
+
+resource "aws_nat_gateway" "nat" {
+  allocation_id = aws_eip.nat.id
+  subnet_id     = aws_subnet.public_1a.id
+  depends_on    = [aws_internet_gateway.igw]
+  tags          = { Name = "uce-qa-nat" }
+}
+
+resource "aws_route_table" "private" {
+  vpc_id = aws_vpc.main.id
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.nat.id
+  }
+  tags = { Name = "uce-qa-private-rt" }
+}
+
+resource "aws_route_table_association" "private_1a" {
+  subnet_id      = aws_subnet.private_1a.id
+  route_table_id = aws_route_table.private.id
+}
+
+# ─────────────────────────────────────────
+# SECURITY GROUPS
+# ─────────────────────────────────────────
+resource "aws_security_group" "sg_bastion" {
+  name        = "uce-bastion"
+  description = "SSH access to bastion host"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port   = 3002
+    to_port     = 3002
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  tags = { Name = "uce-bastion" }
+}
+
+resource "aws_security_group" "sg_private" {
+  name        = "uce-private"
+  description = "Private EC2 instances"
+  vpc_id      = aws_vpc.main.id
+
+  # All internal VPC traffic (covers both 10.0.3.0/24 and 10.0.4.0/24)
+  ingress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["10.0.0.0/16"]
+  }
+  ingress {
+    from_port       = 22
+    to_port         = 22
+    protocol        = "tcp"
+    security_groups = [aws_security_group.sg_bastion.id]
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  tags = { Name = "uce-private" }
+}
+
+# ─────────────────────────────────────────
+# IAM — usar LabInstanceProfile de AWS Academy
+# ─────────────────────────────────────────
+data "aws_iam_instance_profile" "lab_profile" {
+  name = "LabInstanceProfile"
+}
+
+# ─────────────────────────────────────────
+# KEY PAIR
+# ─────────────────────────────────────────
+resource "aws_key_pair" "qa_key" {
+  key_name   = "QA"
+  public_key = file("${path.module}/QA.pub")
+}
+
+# ─────────────────────────────────────────
+# AMI — Ubuntu 24.04
+# ─────────────────────────────────────────
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  owners      = ["099720109477"]
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd*ubuntu*24.04*amd64*"]
+  }
+}
+
+# ─────────────────────────────────────────
+# BASTION HOST
+# ─────────────────────────────────────────
+resource "aws_instance" "bastion" {
+  ami                    = data.aws_ami.ubuntu.id
+  instance_type          = "t3.micro"
+  subnet_id              = aws_subnet.public_1a.id
+  key_name               = aws_key_pair.qa_key.key_name
+  vpc_security_group_ids = [aws_security_group.sg_bastion.id]
+  iam_instance_profile   = data.aws_iam_instance_profile.lab_profile.name
+
+  user_data = base64encode(<<-EOF
+    #!/bin/bash
+    set -e
+    exec > /var/log/uce-bastion-init.log 2>&1
+
+    apt-get update -y
+    apt-get install -y curl unzip jq
+
+    snap install amazon-ssm-agent --classic || true
+    systemctl enable snap.amazon-ssm-agent.amazon-ssm-agent.service || true
+    systemctl start snap.amazon-ssm-agent.amazon-ssm-agent.service || true
+
+    mkdir -p /home/ubuntu/actions-runner
+    cd /home/ubuntu/actions-runner
+    curl -o runner.tar.gz -L https://github.com/actions/runner/releases/download/v2.322.0/actions-runner-linux-x64-2.322.0.tar.gz
+    tar xzf runner.tar.gz
+    rm runner.tar.gz
+    chown -R ubuntu:ubuntu /home/ubuntu/actions-runner
+
+    mkdir -p /home/ubuntu/.ssh
+    chmod 700 /home/ubuntu/.ssh
+    chown ubuntu:ubuntu /home/ubuntu/.ssh
+
+    echo "Bastion init complete — configure runner manually via SSM or SSH"
+  EOF
+  )
+
+  root_block_device {
+    volume_size = 20
+    volume_type = "gp3"
+  }
+
+  lifecycle {
+    ignore_changes = [user_data, ami]
+  }
+
+  tags = { Name = "uce-qa-bastion" }
+}
+
+resource "aws_eip" "bastion_eip" {
+  instance   = aws_instance.bastion.id
+  domain     = "vpc"
+  depends_on = [aws_internet_gateway.igw]
+  tags       = { Name = "uce-qa-bastion-eip" }
+}
+
+# ─────────────────────────────────────────
+# EC2 — QA services (auth, jobs, profile, etc.)
+# ─────────────────────────────────────────
+resource "aws_instance" "qa_auth_jobs" {
+  ami                    = data.aws_ami.ubuntu.id
+  instance_type          = "t3.large"
+  subnet_id              = aws_subnet.private_1a.id
+  key_name               = aws_key_pair.qa_key.key_name
+  vpc_security_group_ids = [aws_security_group.sg_private.id]
+
+  user_data = base64encode(<<-EOF
+    #!/bin/bash
+    set -e
+    exec > /var/log/uce-ec2-init.log 2>&1
+
+    apt-get update -y
+    apt-get install -y ca-certificates curl gnupg git apt-transport-https
+
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    chmod a+r /etc/apt/keyrings/docker.gpg
+
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+    apt-get update -y
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+    systemctl enable docker
+    systemctl start docker
+    usermod -aG docker ubuntu
+
+    echo "EC2 init complete"
+  EOF
+  )
+
+  root_block_device {
+    volume_size = 30
+    volume_type = "gp3"
+  }
+
+  lifecycle {
+    ignore_changes = [user_data, ami]
+  }
+
+  tags = { Name = "uce-qa-ec2-auth-jobs" }
+}
+
+# ─────────────────────────────────────────
+# EC2 — QA PostgreSQL Replica (us-east-1b)
+# ─────────────────────────────────────────
+resource "aws_instance" "qa_postgres_replica" {
+  ami                    = data.aws_ami.ubuntu.id
+  instance_type          = "t3.small"   # single postgres process, no services
+  subnet_id              = aws_subnet.private_1b.id
+  key_name               = aws_key_pair.qa_key.key_name
+  vpc_security_group_ids = [aws_security_group.sg_private.id]
+
+  user_data = base64encode(<<-EOF
+    #!/bin/bash
+    set -e
+    exec > /var/log/uce-replica-init.log 2>&1
+
+    apt-get update -y
+    apt-get install -y ca-certificates curl gnupg apt-transport-https
+
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    chmod a+r /etc/apt/keyrings/docker.gpg
+
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+    apt-get update -y
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+    systemctl enable docker
+    systemctl start docker
+    usermod -aG docker ubuntu
+
+    echo "Replica EC2 init complete"
+  EOF
+  )
+
+  root_block_device {
+    volume_size = 20
+    volume_type = "gp3"
+  }
+
+  lifecycle {
+    ignore_changes = [user_data, ami]
+  }
+
+  tags = { Name = "uce-qa-ec2-postgres-replica" }
+}
+
+# ─────────────────────────────────────────
+# OUTPUTS
+# ─────────────────────────────────────────
+output "bastion_public_ip" {
+  description = "QA Bastion EIP — fixed across sessions"
+  value       = aws_eip.bastion_eip.public_ip
+}
+
+output "qa_auth_jobs_private_ip" {
+  description = "QA primary EC2 private IP — update QA_AUTH_JOBS_IP in GitHub Secrets"
+  value       = aws_instance.qa_auth_jobs.private_ip
+}
+
+output "qa_postgres_replica_private_ip" {
+  description = "QA replica EC2 private IP — update QA_REPLICA_IP in GitHub Secrets"
+  value       = aws_instance.qa_postgres_replica.private_ip
+}
