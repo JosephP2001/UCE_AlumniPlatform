@@ -177,7 +177,7 @@ resource "aws_security_group" "sg_elb" {
 
 resource "aws_security_group" "sg_private" {
   name        = "private-prod"
-  description = "Private EC2 instances — only from ELB and bastion"
+  description = "Private EC2 instances - only from ELB and bastion"
   vpc_id      = aws_vpc.main.id
 
   # All internal VPC traffic
@@ -514,7 +514,7 @@ resource "aws_lb_listener_rule" "jobs_rule" {
 # OUTPUTS
 # ─────────────────────────────────────────
 output "bastion_eip" {
-  description = "Fixed Elastic IP — update PROD_BASTION_IP in GitHub Secrets"
+  description = "Fixed Elastic IP - update PROD_BASTION_IP in GitHub Secrets"
   value       = aws_eip.bastion_eip.public_ip
 }
 
