@@ -2,23 +2,23 @@ import request from 'supertest';
 import express from 'express';
 import jwt from 'jsonwebtoken';
 
-jest.mock('../src/db/postgres', () => ({
+jest.mock('./db/postgres', () => ({
   pgPool: { query: jest.fn() },
   initPG: jest.fn(),
 }));
 
-jest.mock('../src/db/mongo', () => ({
+jest.mock('./db/mongo', () => ({
   getMongoDB: jest.fn(),
   initMongo: jest.fn(),
 }));
 
-jest.mock('../src/index', () => ({
+jest.mock('./index', () => ({
   logger: { info: jest.fn(), error: jest.fn() },
 }));
 
-import { pgPool } from '../src/db/postgres';
-import { getMongoDB } from '../src/db/mongo';
-import analyticsRouter from '../src/routes/analytics';
+import { pgPool } from './db/postgres';
+import { getMongoDB } from './db/mongo';
+import analyticsRouter from './routes/analytics';
 
 const JWT_SECRET = 'test-secret';
 process.env.JWT_SECRET = JWT_SECRET;
