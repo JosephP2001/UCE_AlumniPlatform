@@ -228,6 +228,9 @@
     - name: Stop and remove audit-service container
       shell: docker stop audit-service && docker rm audit-service || true
 
+    - name: Stop and remove analytics-service container
+      shell: docker stop analytics-service && docker rm analytics-service || true
+
     
     - name: Stop and remove web-app container
       shell: docker stop web-app && docker rm web-app || true
@@ -252,6 +255,9 @@
     
     - name: Pull audit-service image
       shell: docker pull josephp2001/uce-audit-service:qa
+
+    - name: Pull analytics-service image
+      shell: docker pull josephp2001/uce-analytics-service:qa
 
     - name: Run auth-service container
       shell: |
@@ -358,6 +364,24 @@
           -e 'PG_PASSWORD={{ pg_password }}' \
           -e KAFKA_BROKERS=kafka:9092 \
           josephp2001/uce-audit-service:qa
+
+    - name: Run analytics-service container
+      shell: |
+        docker run -d \
+          --name analytics-service \
+          --network uce-network \
+          --restart always \
+          -e NODE_ENV=production \
+          -e PORT=3007 \
+          -e JWT_SECRET="{{ jwt_secret }}" \
+          -e PG_HOST=postgres \
+          -e PG_PORT=5432 \
+          -e PG_DATABASE=jobs_db \
+          -e PG_USER=postgres \
+          -e 'PG_PASSWORD={{ pg_password }}' \
+          -e MONGO_URI=mongodb://mongodb:27017 \
+          -e MONGO_DB=profiles_db \
+          josephp2001/uce-analytics-service:qa
 
           
     - name: Run web-app container
