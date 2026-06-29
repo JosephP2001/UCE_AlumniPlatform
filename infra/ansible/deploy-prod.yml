@@ -198,7 +198,16 @@
 
     - name: Stop and remove matching-service container
       shell: docker stop matching-service && docker rm matching-service || true
-      
+
+    - name: Stop and remove audit-service container
+      shell: docker stop audit-service && docker rm audit-service || true
+
+    - name: Stop and remove analytics-service container
+      shell: docker stop analytics-service && docker rm analytics-service || true
+
+    - name: Stop and remove messaging-service container
+      shell: docker stop messaging-service && docker rm messaging-service || true
+
     - name: Stop and remove web-app container
       shell: docker stop web-app && docker rm web-app || true
 
@@ -217,6 +226,14 @@
     - name: Pull matching-service image
       shell: docker pull josephp2001/uce-matching-service:latest
 
+    - name: Pull audit-service image
+      shell: docker pull josephp2001/uce-audit-service:latest
+
+    - name: Pull analytics-service image
+      shell: docker pull josephp2001/uce-analytics-service:latest
+
+    - name: Pull messaging-service image
+      shell: docker pull josephp2001/uce-messaging-service:latest
 
     - name: Pull web-app image
       shell: docker pull josephp2001/uce-web-app:latest
@@ -288,6 +305,7 @@
           -e JWT_SECRET="{{ jwt_secret }}" \
           -e "RABBITMQ_URL=amqp://admin:{{ rabbitmq_password }}@rabbitmq:5672" \
           josephp2001/uce-notification-service:latest
+
     - name: Run matching-service container
       shell: |
         docker run -d \
@@ -303,6 +321,55 @@
           -e KAFKA_BROKER=kafka:9092 \
           -e 'RABBITMQ_PASSWORD={{ rabbitmq_password }}' \
           josephp2001/uce-matching-service:latest
+
+    - name: Run audit-service container
+      shell: |
+        docker run -d \
+          --name audit-service \
+          --network uce-network \
+          --restart always \
+          -e NODE_ENV=production \
+          -e PORT=3006 \
+          -e JWT_SECRET="{{ jwt_secret }}" \
+          -e PG_HOST=postgres \
+          -e PG_PORT=5432 \
+          -e PG_DATABASE=jobs_db \
+          -e PG_USER=postgres \
+          -e 'PG_PASSWORD={{ pg_password }}' \
+          -e KAFKA_BROKERS=kafka:9092 \
+          josephp2001/uce-audit-service:latest
+
+    - name: Run analytics-service container
+      shell: |
+        docker run -d \
+          --name analytics-service \
+          --network uce-network \
+          --restart always \
+          -e NODE_ENV=production \
+          -e PORT=3007 \
+          -e JWT_SECRET="{{ jwt_secret }}" \
+          -e PG_HOST=postgres \
+          -e PG_PORT=5432 \
+          -e PG_DATABASE=jobs_db \
+          -e PG_USER=postgres \
+          -e 'PG_PASSWORD={{ pg_password }}' \
+          -e MONGO_URI=mongodb://mongodb:27017 \
+          -e MONGO_DB=profiles_db \
+          josephp2001/uce-analytics-service:latest
+
+    - name: Run messaging-service container
+      shell: |
+        docker run -d \
+          --name messaging-service \
+          --network uce-network \
+          --restart always \
+          -e NODE_ENV=production \
+          -e PORT=3008 \
+          -e JWT_SECRET="{{ jwt_secret }}" \
+          -e MONGO_URI=mongodb://mongodb:27017 \
+          -e MONGO_DB=messaging_db \
+          -e "ALLOWED_ORIGINS=https://josheponcepro1.distribuidauce.org" \
+          josephp2001/uce-messaging-service:latest
 
     - name: Run web-app container
       shell: |
