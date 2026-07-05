@@ -266,6 +266,9 @@
     
     - name: Pull audit-service image
       shell: docker pull josephp2001/uce-audit-service:qa
+    
+    - name: Pull admin-service image
+      shell: docker pull josephp2001/uce-admin-service:qa
 
     - name: Pull analytics-service image
       shell: docker pull josephp2001/uce-analytics-service:qa

@@ -228,6 +228,9 @@
 
     - name: Pull audit-service image
       shell: docker pull josephp2001/uce-audit-service:latest
+    
+    - name: Pull admin-service image
+      shell: docker pull josephp2001/uce-admin-service:latest
 
     - name: Pull analytics-service image
       shell: docker pull josephp2001/uce-analytics-service:latest
@@ -338,6 +341,22 @@
           -e 'PG_PASSWORD={{ pg_password }}' \
           -e KAFKA_BROKERS=kafka:9092 \
           josephp2001/uce-audit-service:latest
+
+    - name: Run admin-service container
+      shell: |
+        docker run -d \
+          --name admin-service \
+          --network uce-network \
+          --restart always \
+          -e NODE_ENV=production \
+          -e PORT=3009 \
+          -e JWT_SECRET="{{ jwt_secret }}" \
+          -e PG_HOST=postgres \
+          -e PG_PORT=5432 \
+          -e PG_DATABASE=jobs_db \
+          -e PG_USER=postgres \
+          -e 'PG_PASSWORD={{ pg_password }}' \
+          josephp2001/uce-admin-service:latest
 
     - name: Run analytics-service container
       shell: |
