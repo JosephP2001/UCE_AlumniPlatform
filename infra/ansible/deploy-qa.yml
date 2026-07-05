@@ -120,6 +120,11 @@
           sleep 2
         done
         exit 1
+    
+    - name: Ensure n8n_db database exists
+      shell: |
+        docker exec postgres psql -U postgres -tc "SELECT 1 FROM pg_database WHERE datname='n8n_db'" | grep -q 1 || \
+        docker exec postgres psql -U postgres -c "CREATE DATABASE n8n_db;"
 
     # ── POSTGRESQL REPLICATION SETUP — IDEMPOTENT ──────────────
 
@@ -221,6 +226,9 @@
 
     - name: Stop and remove notification-service container
       shell: docker stop notification-service && docker rm notification-service || true
+
+    - name: Stop and remove n8n container
+      shell: docker stop n8n && docker rm n8n || true
 
     - name: Stop and remove matching-service container
       shell: docker stop matching-service && docker rm matching-service || true
@@ -338,6 +346,29 @@
           -e "MQTT_URL=mqtt://mosquitto:1883" \
           josephp2001/uce-notification-service:qa
 
+    - name: Run n8n container
+      shell: |
+        docker run -d \
+          --name n8n \
+          --network uce-network \
+          --restart always \
+          -e N8N_HOST=0.0.0.0 \
+          -e N8N_PORT=5678 \
+          -e N8N_PROTOCOL=http \
+          -e DB_TYPE=postgresdb \
+          -e DB_POSTGRESDB_HOST=postgres \
+          -e DB_POSTGRESDB_PORT=5432 \
+          -e DB_POSTGRESDB_DATABASE=n8n_db \
+          -e DB_POSTGRESDB_USER=postgres \
+          -e DB_POSTGRESDB_PASSWORD="{{ pg_password }}" \
+          -e N8N_BASIC_AUTH_ACTIVE=true \
+          -e N8N_BASIC_AUTH_USER=admin \
+          -e N8N_BASIC_AUTH_PASSWORD="{{ n8n_basic_auth_password }}" \
+          -e N8N_ENCRYPTION_KEY="{{ n8n_encryption_key }}" \
+          -e WEBHOOK_URL="http://{{ bastion_ip }}/n8n/" \
+          -v n8n_data:/home/node/.n8n \
+          n8nio/n8n
+        
     - name: Run matching-service container
       shell: |
         docker run -d \
