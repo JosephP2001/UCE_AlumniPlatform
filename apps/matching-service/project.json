@@ -1,0 +1,15 @@
+{
+  "name": "matching-service",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/matching-service",
+  "targets": {
+    "test": {
+      "executor": "nx:run-commands",
+      "options": { "command": "go test ./internal/matcher/...", "cwd": "apps/matching-service" }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "options": { "command": "go build ./...", "cwd": "apps/matching-service" }
+    }
+  }
+}
