@@ -11,35 +11,24 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '24'
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
       - name: Install dependencies
         run: npm install
 
-      - name: Run tests - auth-service
-        run: cd apps/auth-service && npm install && npm test
-
-      - name: Run tests - jobs-service
-        run: cd apps/jobs-service && npm install && npm test
-
-      - name: Run tests - profile-service
-        run: cd apps/profile-service && npm install && npm test
-
-      - name: Run tests - notification-service
-        run: cd apps/notification-service && npm install && npm test
-
-      - name: Run tests - audit-service
-        run: cd apps/audit-service && npm install && npm test
-
-      - name: Run tests - analytics-service
-        run: cd apps/analytics-service && npm install && npm test
-
-      - name: Run tests - messaging-service
-        run: cd apps/messaging-service && npm install && npm test
+      - name: Run affected tests
+        run: npx nx affected -t test --base=HEAD~1 --head=HEAD
 
   build-auth:
     runs-on: ubuntu-latest
