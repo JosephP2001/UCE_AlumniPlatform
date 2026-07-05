@@ -243,14 +243,45 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Resolve PROD IPs dynamically
+        id: prod_ips
+        run: |
+          ASG_IP=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=uce-prod-asg-instance" "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].PrivateIpAddress" --output text)
+          BASTION_IP=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=uce-prod-bastion" "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].PublicIpAddress" --output text)
+
+          if [ "$ASG_IP" = "None" ] || [ -z "$ASG_IP" ]; then
+            echo "::error::No se encontró instancia ASG running con tag uce-prod-asg-instance"
+            exit 1
+          fi
+          if [ "$BASTION_IP" = "None" ] || [ -z "$BASTION_IP" ]; then
+            echo "::error::No se encontró bastion running con tag uce-prod-bastion"
+            exit 1
+          fi
+
+          echo "asg_ip=$ASG_IP" >> "$GITHUB_OUTPUT"
+          echo "bastion_ip=$BASTION_IP" >> "$GITHUB_OUTPUT"
+          echo "Resuelto: ASG=$ASG_IP  Bastion=$BASTION_IP"
+
       - name: Setup SSH keys
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/PROD.pem
           chmod 400 ~/.ssh/PROD.pem
-          ssh-keyscan -T 10 -H ${{ secrets.PROD_BASTION_IP }} >> ~/.ssh/known_hosts || true
-          ssh -i ~/.ssh/PROD.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.PROD_BASTION_IP }} \
-            "ssh-keyscan -H ${{ secrets.PROD_AUTH_JOBS_IP }}" >> ~/.ssh/known_hosts || true
+          ssh-keyscan -T 10 -H ${{ steps.prod_ips.outputs.bastion_ip }} >> ~/.ssh/known_hosts || true
+          ssh -i ~/.ssh/PROD.pem -o StrictHostKeyChecking=no ubuntu@${{ steps.prod_ips.outputs.bastion_ip }} \
+            "ssh-keyscan -H ${{ steps.prod_ips.outputs.asg_ip }}" >> ~/.ssh/known_hosts || true
 
       - name: Install Ansible
         run: pip install ansible
@@ -259,7 +290,7 @@ jobs:
         run: |
           cat > /tmp/prod_inventory.ini << EOF2
           [prod_ec2]
-          ${{ secrets.PROD_AUTH_JOBS_IP }} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/PROD.pem ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ProxyCommand="ssh -W %h:%p -i ~/.ssh/PROD.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.PROD_BASTION_IP }}"'
+          ${{ steps.prod_ips.outputs.asg_ip }} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/PROD.pem ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o ProxyCommand="ssh -W %h:%p -i ~/.ssh/PROD.pem -o StrictHostKeyChecking=no ubuntu@${{ steps.prod_ips.outputs.bastion_ip }}"'
           EOF2
 
       - name: Deploy via Ansible
@@ -270,5 +301,5 @@ jobs:
             -e "oauth_client_id=${{ secrets.OAUTH_CLIENT_ID }}" \
             -e "oauth_client_secret=${{ secrets.OAUTH_CLIENT_SECRET }}" \
             -e "pg_password=${{ secrets.PG_PASSWORD }}" \
-            -e "bastion_ip=${{ secrets.PROD_BASTION_IP }}" \
+            -e "bastion_ip=${{ steps.prod_ips.outputs.bastion_ip }}" \
             -e "rabbitmq_password=${{ secrets.RABBITMQ_PASSWORD }}"
