@@ -27,6 +27,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Build affected libraries
+        run: npx nx affected -t build --base=HEAD~1 --head=HEAD
+
       - name: Run affected tests
         run: npx nx affected -t test --base=HEAD~1 --head=HEAD
 
