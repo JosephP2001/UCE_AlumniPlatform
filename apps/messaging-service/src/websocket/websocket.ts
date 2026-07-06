@@ -59,9 +59,11 @@ export function initWebSocketServer(server: Server): WebSocketServer {
 
     let userId: string;
     try {
-      const secret = process.env.JWT_SECRET || 'default_secret';
-      const decoded = jwt.verify(token, secret) as { userId: string };
-      userId = decoded.userId;
+      const secret = process.env.JWT_SECRET;
+      if (!secret) throw new Error('JWT_SECRET not set');
+
+      const decoded = jwt.verify(token, secret) as { id: number };
+      userId = String(decoded.id);
     } catch {
       ws.close(1008, 'Invalid token');
       return;
