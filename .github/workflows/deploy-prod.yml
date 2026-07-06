@@ -32,7 +32,7 @@ jobs:
 
       - name: Run affected tests
         run: npx nx affected -t test --base=HEAD~1 --head=HEAD
-        
+
   build-auth:
     runs-on: ubuntu-latest
     needs: test
@@ -149,7 +149,8 @@ jobs:
       - name: Build and push audit-service
         uses: docker/build-push-action@v5
         with:
-          context: ./apps/audit-service
+          context: .
+          file: ./apps/audit-service/Dockerfile
           push: true
           tags: josephp2001/uce-audit-service:latest
   
@@ -167,7 +168,8 @@ jobs:
       - name: Build and push admin-service
         uses: docker/build-push-action@v5
         with:
-          context: ./apps/admin-service
+          context: .
+          file: ./apps/admin-service/Dockerfile
           push: true
           tags: josephp2001/uce-admin-service:latest
 
@@ -187,7 +189,8 @@ jobs:
       - name: Build and push analytics-service
         uses: docker/build-push-action@v5
         with:
-          context: ./apps/analytics-service
+          context: .
+          file: ./apps/analytics-service/Dockerfile
           push: true
           tags: josephp2001/uce-analytics-service:latest
 
