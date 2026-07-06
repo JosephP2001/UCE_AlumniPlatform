@@ -5,7 +5,7 @@ import { messagingService } from '../services/messaging.service';
 export class MessagingController {
   async getConversations(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const userId = req.user!.userId;
+      const userId = String(req.user!.id);
       const conversations = await messagingService.getConversationsByUser(userId);
       res.json({ conversations });
     } catch (err) {
@@ -20,7 +20,7 @@ export class MessagingController {
         res.status(400).json({ error: 'recipientId is required' });
         return;
       }
-      const senderId = req.user!.userId;
+      const senderId = String(req.user!.id);
       if (senderId === recipientId) {
         res.status(400).json({ error: 'Cannot start a conversation with yourself' });
         return;
@@ -37,14 +37,14 @@ export class MessagingController {
       const { conversationId } = req.params;
       const page  = parseInt(req.query.page  as string) || 1;
       const limit = parseInt(req.query.limit as string) || 50;
+      const userId = String(req.user!.id);
 
-      // Verify user is participant
       const conversation = await messagingService.getConversationById(conversationId);
       if (!conversation) {
         res.status(404).json({ error: 'Conversation not found' });
         return;
       }
-      if (!conversation.participants.includes(req.user!.userId)) {
+      if (!conversation.participants.includes(userId)) {
         res.status(403).json({ error: 'Access denied' });
         return;
       }
@@ -72,7 +72,7 @@ export class MessagingController {
         return;
       }
 
-      const senderId = req.user!.userId;
+      const senderId = String(req.user!.id);
       if (!conversation.participants.includes(senderId)) {
         res.status(403).json({ error: 'Access denied' });
         return;
@@ -95,7 +95,8 @@ export class MessagingController {
   async markAsRead(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { conversationId } = req.params;
-      const updated = await messagingService.markAsRead(conversationId, req.user!.userId);
+      const userId = String(req.user!.id);
+      const updated = await messagingService.markAsRead(conversationId, userId);
       res.json({ markedAsRead: updated });
     } catch (err) {
       res.status(500).json({ error: 'Failed to mark messages as read' });
@@ -104,7 +105,8 @@ export class MessagingController {
 
   async getUnreadCount(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const count = await messagingService.getUnreadCount(req.user!.userId);
+      const userId = String(req.user!.id);
+      const count = await messagingService.getUnreadCount(userId);
       res.json({ unread: count });
     } catch (err) {
       res.status(500).json({ error: 'Failed to get unread count' });
