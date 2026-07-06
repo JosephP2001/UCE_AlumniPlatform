@@ -262,4 +262,6 @@ jobs:
             -e "rabbitmq_password=${{ secrets.RABBITMQ_PASSWORD }}" \
             -e "postgres_replicator_password=${{ secrets.POSTGRES_REPLICATOR_PASSWORD }}" \
             -e "bastion_ip=${{ secrets.QA_BASTION_IP }}" \
-            -e "ec2_private_ip=${{ secrets.QA_AUTH_JOBS_IP }}"
+            -e "ec2_private_ip=${{ secrets.QA_AUTH_JOBS_IP }}" \
+            -e "n8n_basic_auth_password=${{ secrets.N8N_BASIC_AUTH_PASSWORD }}" \
+            -e "n8n_encryption_key=${{ secrets.N8N_ENCRYPTION_KEY }}"
