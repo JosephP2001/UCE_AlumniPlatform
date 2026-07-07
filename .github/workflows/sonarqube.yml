@@ -1,0 +1,63 @@
+name: SonarQube Analysis - UCE Alumni Platform
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - QA
+
+jobs:
+  sonarqube:
+    name: SonarQube Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run Node/TS tests with coverage
+        run: npx nx run-many -t test --coverage
+        continue-on-error: true
+
+      - name: Run Go tests with coverage (matching-service)
+        run: |
+          cd apps/matching-service
+          go test ./internal/matcher/... -coverprofile=coverage.out
+        continue-on-error: true
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: sqa_f0b24aa62db4da38d5c740c259744c1e741cf854
+
+          SONAR_HOST_URL: http://98.90.146.42:9000
+        with:
+          args: >
+            -Dsonar.projectKey=g5-Alumni-Platform
+            -Dsonar.projectName=g5-Alumni-Platform
+            -Dsonar.sources=apps
+            -Dsonar.exclusions=**/node_modules/**,**/.next/**,**/dist/**,**/build/**,**/*.test.ts,**/*.test.tsx,**/*.test.js,**/vendor/**
+            -Dsonar.javascript.lcov.reportPaths=apps/*/coverage/lcov.info
+            -Dsonar.typescript.lcov.reportPaths=apps/*/coverage/lcov.info
+            -Dsonar.go.coverage.reportPaths=apps/matching-service/coverage.out
+
+      - name: SonarQube Quality Gate Check
+        uses: SonarSource/sonarqube-quality-gate-action@v1
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: sqa_f0b24aa62db4da38d5c740c259744c1e741cf854
