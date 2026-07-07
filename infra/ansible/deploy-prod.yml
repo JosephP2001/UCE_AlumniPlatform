@@ -126,6 +126,23 @@
         done
         exit 1
 
+    # ── SCHEMA MIGRATIONS — IDEMPOTENT ─────────────────────────
+    # Added 2026-07-07: admin-service requires jobs_db.users, but no
+    # service creates this table on its own (unlike audit_logs/jobs/
+    # profiles/notifications, which are self-initializing). Discovered
+    # during a QA incident where this same gap crash-looped admin-service
+    # and, transitively, nginx (unresolvable upstream). Applying the same
+    # fix here proactively so PROD doesn't hit it on first real deploy.
+
+    - name: Ensure pgcrypto extension exists in jobs_db
+      shell: |
+        docker exec postgres psql -U postgres -d jobs_db -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+
+    - name: Ensure users table exists in jobs_db
+      shell: |
+        docker exec postgres psql -U postgres -d jobs_db -tc "SELECT 1 FROM information_schema.tables WHERE table_name='users'" | grep -q 1 || \
+        docker exec postgres psql -U postgres -d jobs_db -c "CREATE TABLE users (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), github_id VARCHAR, username VARCHAR, role VARCHAR DEFAULT 'student', created_at TIMESTAMPTZ DEFAULT NOW());"
+
     # ── MESSAGING INFRASTRUCTURE — IDEMPOTENT ──────────────────
 
     - name: Ensure Zookeeper is running
@@ -202,6 +219,9 @@
     - name: Stop and remove audit-service container
       shell: docker stop audit-service && docker rm audit-service || true
 
+    - name: Stop and remove admin-service container
+      shell: docker stop admin-service && docker rm admin-service || true
+
     - name: Stop and remove analytics-service container
       shell: docker stop analytics-service && docker rm analytics-service || true
 
@@ -222,13 +242,13 @@
 
     - name: Pull notification-service image
       shell: docker pull josephp2001/uce-notification-service:latest
-    
+
     - name: Pull matching-service image
       shell: docker pull josephp2001/uce-matching-service:latest
 
     - name: Pull audit-service image
       shell: docker pull josephp2001/uce-audit-service:latest
-    
+
     - name: Pull admin-service image
       shell: docker pull josephp2001/uce-admin-service:latest
 
