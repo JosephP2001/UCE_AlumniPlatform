@@ -4,6 +4,7 @@ process.env.REDIS_URL = 'redis://localhost:6379';
 process.env.ANALYTICS_SERVICE_URL = 'http://analytics-service:3007';
 
 import request from 'supertest';
+import { signAccessToken } from '@uce-platform/auth-shared';
 
 jest.mock('../src/services/cache', () => ({
   getCached: jest.fn(),
@@ -32,7 +33,7 @@ import { getCached, setCached } from '../src/services/cache';
 import { fetchAnalyticsSummary, AnalyticsServiceError } from '../src/services/analyticsClient';
 import { generateInsights, LlmGenerationError } from '../src/services/llmClient';
 
-const AUTH_HEADER = 'Bearer fake.jwt.token';
+const AUTH_HEADER = `Bearer ${signAccessToken({ id: 1, username: 'admin-test', role: 'admin' })}`;
 
 describe('GET /api/insights/summary', () => {
   beforeEach(() => {
