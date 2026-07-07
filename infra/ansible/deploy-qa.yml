@@ -121,6 +121,28 @@
         done
         exit 1
 
+    - name: Ensure n8n_db database exists
+      shell: |
+        docker exec postgres psql -U postgres -tc "SELECT 1 FROM pg_database WHERE datname='n8n_db'" | grep -q 1 || \
+        docker exec postgres psql -U postgres -c "CREATE DATABASE n8n_db;"
+
+    # ── SCHEMA MIGRATIONS — IDEMPOTENT ─────────────────────────
+    # Added 2026-07-07: admin-service requires jobs_db.users, but no
+    # service creates this table on its own (unlike audit_logs/jobs/
+    # profiles/notifications, which are self-initializing). Without this,
+    # admin-service crash-loops with "relation users does not exist",
+    # which in turn breaks nginx (its nginx.conf upstream can't resolve
+    # a container that never starts), taking down all of QA behind it.
+
+    - name: Ensure pgcrypto extension exists in jobs_db
+      shell: |
+        docker exec postgres psql -U postgres -d jobs_db -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+
+    - name: Ensure users table exists in jobs_db
+      shell: |
+        docker exec postgres psql -U postgres -d jobs_db -tc "SELECT 1 FROM information_schema.tables WHERE table_name='users'" | grep -q 1 || \
+        docker exec postgres psql -U postgres -d jobs_db -c "CREATE TABLE users (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), github_id VARCHAR, username VARCHAR, role VARCHAR DEFAULT 'student', created_at TIMESTAMPTZ DEFAULT NOW());"
+
     # ── POSTGRESQL REPLICATION SETUP — IDEMPOTENT ──────────────
 
     - name: Ensure replication user exists in PostgreSQL
@@ -222,11 +244,17 @@
     - name: Stop and remove notification-service container
       shell: docker stop notification-service && docker rm notification-service || true
 
+    - name: Stop and remove n8n container
+      shell: docker stop n8n && docker rm n8n || true
+
     - name: Stop and remove matching-service container
       shell: docker stop matching-service && docker rm matching-service || true
-    
+
     - name: Stop and remove audit-service container
       shell: docker stop audit-service && docker rm audit-service || true
+
+    - name: Stop and remove admin-service container
+      shell: docker stop admin-service && docker rm admin-service || true
 
     - name: Stop and remove analytics-service container
       shell: docker stop analytics-service && docker rm analytics-service || true
@@ -234,7 +262,6 @@
     - name: Stop and remove messaging-service container
       shell: docker stop messaging-service && docker rm messaging-service || true
 
-    
     - name: Stop and remove web-app container
       shell: docker stop web-app && docker rm web-app || true
 
@@ -255,9 +282,12 @@
 
     - name: Pull web-app image
       shell: docker pull josephp2001/uce-web-app:qa
-    
+
     - name: Pull audit-service image
       shell: docker pull josephp2001/uce-audit-service:qa
+
+    - name: Pull admin-service image
+      shell: docker pull josephp2001/uce-admin-service:qa
 
     - name: Pull analytics-service image
       shell: docker pull josephp2001/uce-analytics-service:qa
@@ -338,6 +368,29 @@
           -e "MQTT_URL=mqtt://mosquitto:1883" \
           josephp2001/uce-notification-service:qa
 
+    - name: Run n8n container
+      shell: |
+        docker run -d \
+          --name n8n \
+          --network uce-network \
+          --restart always \
+          -e N8N_HOST=0.0.0.0 \
+          -e N8N_PORT=5678 \
+          -e N8N_PROTOCOL=http \
+          -e DB_TYPE=postgresdb \
+          -e DB_POSTGRESDB_HOST=postgres \
+          -e DB_POSTGRESDB_PORT=5432 \
+          -e DB_POSTGRESDB_DATABASE=n8n_db \
+          -e DB_POSTGRESDB_USER=postgres \
+          -e DB_POSTGRESDB_PASSWORD="{{ pg_password }}" \
+          -e N8N_BASIC_AUTH_ACTIVE=true \
+          -e N8N_BASIC_AUTH_USER=admin \
+          -e N8N_BASIC_AUTH_PASSWORD="{{ n8n_basic_auth_password }}" \
+          -e N8N_ENCRYPTION_KEY="{{ n8n_encryption_key }}" \
+          -e WEBHOOK_URL="http://{{ bastion_ip }}/n8n/" \
+          -v n8n_data:/home/node/.n8n \
+          n8nio/n8n
+
     - name: Run matching-service container
       shell: |
         docker run -d \
@@ -353,7 +406,7 @@
           -e KAFKA_BROKER=kafka:9092 \
           -e 'RABBITMQ_PASSWORD={{ rabbitmq_password }}' \
           josephp2001/uce-matching-service:qa
-    
+
     - name: Run audit-service container
       shell: |
         docker run -d \
@@ -370,6 +423,25 @@
           -e 'PG_PASSWORD={{ pg_password }}' \
           -e KAFKA_BROKERS=kafka:9092 \
           josephp2001/uce-audit-service:qa
+
+    # Added 2026-07-07: this task was missing entirely — the image was
+    # being pulled but never run, which crash-looped nginx (upstream
+    # "admin-service:3009" unresolvable) and took down all of QA.
+    - name: Run admin-service container
+      shell: |
+        docker run -d \
+          --name admin-service \
+          --network uce-network \
+          --restart always \
+          -e NODE_ENV=production \
+          -e PORT=3009 \
+          -e JWT_SECRET="{{ jwt_secret }}" \
+          -e PG_HOST=postgres \
+          -e PG_PORT=5432 \
+          -e PG_DATABASE=jobs_db \
+          -e PG_USER=postgres \
+          -e 'PG_PASSWORD={{ pg_password }}' \
+          josephp2001/uce-admin-service:qa
 
     - name: Run analytics-service container
       shell: |
@@ -403,7 +475,6 @@
           -e "ALLOWED_ORIGINS=http://{{ bastion_ip }}" \
           josephp2001/uce-messaging-service:qa
 
-          
     - name: Run web-app container
       shell: |
         docker run -d \

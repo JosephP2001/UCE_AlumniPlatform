@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { pgPool } from '../db/postgres';
 import { getMongoDB } from '../db/mongo';
-import { requireAdmin, AuthRequest } from '../middleware/auth';
+import { requireAdmin, AuthRequest } from '@uce-platform/auth-shared';
 import { logger } from '../index';
 
 const router = Router();

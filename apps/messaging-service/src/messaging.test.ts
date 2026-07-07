@@ -25,7 +25,7 @@ app.use(express.json());
 app.use('/', messagingRoutes);
 
 function makeToken(userId = 'user-1') {
-  return jwt.sign({ userId, email: 'test@uce.edu.ec', role: 'student' }, JWT_SECRET, { expiresIn: '1h' });
+  return jwt.sign({ id: userId, email: 'test@uce.edu.ec', role: 'student' }, JWT_SECRET, { expiresIn: '1h' });
 }
 
 beforeEach(() => {

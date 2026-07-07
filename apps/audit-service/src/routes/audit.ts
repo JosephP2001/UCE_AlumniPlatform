@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { pool } from '../db';
-import { requireAdmin, AuthRequest } from '../middleware/auth';
+import { requireAdmin, AuthRequest } from '@uce-platform/auth-shared';
 import { logger } from '../index';
 
 const router = Router();

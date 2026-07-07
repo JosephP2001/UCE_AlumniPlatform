@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
 export interface AuthRequest extends Request {
-  user?: { userId: string; email: string; role: string };
+  user?: { id: number; username?: string; role?: string };
 }
 
 export const authMiddleware = (
@@ -18,11 +18,13 @@ export const authMiddleware = (
 
   const token = authHeader.split(' ')[1];
   try {
-    const secret = process.env.JWT_SECRET || 'default_secret';
+    const secret = process.env.JWT_SECRET;
+    if (!secret) throw new Error('JWT_SECRET not set');
+
     const decoded = jwt.verify(token, secret) as {
-      userId: string;
-      email: string;
-      role: string;
+      id: number;
+      username?: string;
+      role?: string;
     };
     req.user = decoded;
     next();
