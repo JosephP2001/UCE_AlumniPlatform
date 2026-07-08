@@ -54,6 +54,12 @@ aws
 dir
 .postman/
 postman/ 
+
+# Environment variables (contienen secrets reales - nunca commitear)
+.env
+**/.env
+!**/.env.example
+
 # Claude Code 
 AGENTS.md 
 CLAUDE.md 
