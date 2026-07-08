@@ -304,8 +304,11 @@ jobs:
         run: |
           cat > /tmp/prod_inventory.ini << EOF2
           [prod_ec2]
-          ${{ steps.prod_ips.outputs.asg_ip }} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/PROD.pem ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o ProxyCommand="ssh -W %h:%p -i ~/.ssh/PROD.pem -o StrictHostKeyChecking=no ubuntu@${{ steps.prod_ips.outputs.bastion_ip }}"'
+          ${{ steps.prod_ips.outputs.asg_ip }} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/PROD.pem ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o ProxyJump=ubuntu@${{ steps.prod_ips.outputs.bastion_ip }}'
           EOF2
+
+      - name: Debug inventory
+        run: cat /tmp/prod_inventory.ini
 
       - name: Deploy via Ansible
         run: |
