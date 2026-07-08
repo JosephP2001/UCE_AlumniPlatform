@@ -90,8 +90,11 @@ npx nx build auth-shared
 ```
 
 Nx automatically builds this package first when building any service that
-depends on it (`buildDepsName` in `nx.json`), so `npx nx build admin-service`
-handles the ordering for you.
+depends on it, thanks to `targetDefaults.build.dependsOn: ["^build"]` in the
+root `nx.json`. So `npx nx build admin-service` handles the ordering for you
+— this also applies transparently inside each service's Docker multi-stage
+build (`npm run build --workspace=packages/auth-shared` runs before the
+service's own build step).
 
 ---
 
@@ -99,9 +102,9 @@ handles the ordering for you.
 
 | Service | Status |
 |---|---|
-| `admin-service` | ✅ dependency added — middleware swap pending |
-| `analytics-service` | ⬜ pending |
-| `audit-service` | ⬜ pending |
+| `admin-service` | ✅ migrated — middleware swap complete |
+| `analytics-service` | ✅ migrated — middleware swap complete |
+| `audit-service` | ✅ migrated — middleware swap complete |
 | `profile-service` | ⬜ pending |
 | `jobs-service` | ⬜ pending |
 | `messaging-service` | ⬜ pending (bug-fixed separately in `fix/messaging-userid-mismatch`, not yet migrated to this package) |
