@@ -9,5 +9,6 @@ router.get('/github/callback', authController.githubCallback);
 router.post('/refresh', authController.refresh);
 router.post('/logout', authController.logout);
 router.get('/me', authController.me);
+router.post('/test-token', authController.testToken); // ← NUEVO, solo demo/local
 
 export { router as authRouter };

@@ -23,8 +23,8 @@ app.use(cors({
 
 // ── RATE LIMITING ─────────────────────────────────────────
 const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100,
+  windowMs: 15 * 60 * 1000,
+  max: parseInt(process.env.GLOBAL_RATE_LIMIT_MAX || '100', 10),
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later.' },
@@ -32,7 +32,7 @@ const globalLimiter = rateLimit({
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20, // stricter for auth endpoints
+  max: parseInt(process.env.AUTH_RATE_LIMIT_MAX || '20', 10), // stricter for auth endpoints
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many authentication attempts, please try again later.' },
@@ -83,4 +83,3 @@ app.listen(PORT, () => {
 });
 
 export default app;
-"// test nx affected" 

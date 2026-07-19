@@ -1,0 +1,37 @@
+networks:
+  uce-network:
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    networks: [uce-network]
+    environment:
+      POSTGRES_DB: jobs_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: localpass
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    networks: [uce-network]
+
+  auth-service:
+    build:
+      context: ../auth-service
+      dockerfile: Dockerfile
+    networks: [uce-network]
+    depends_on: [postgres, redis]
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      JWT_SECRET: local-test-secret
+      OAUTH_CLIENT_ID: dummy
+      OAUTH_CLIENT_SECRET: dummy
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      FRONTEND_URL: http://localhost
+      AUTH_RATE_LIMIT_MAX: "1000"
+      GLOBAL_RATE_LIMIT_MAX: "1000"

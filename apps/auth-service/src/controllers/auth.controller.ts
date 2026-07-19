@@ -10,6 +10,7 @@ const CLIENT_ID = process.env.OAUTH_CLIENT_ID || '';
 const CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET || '';
 const JWT_EXPIRES_IN = '15m';
 const REFRESH_EXPIRES_IN = '7d';
+const TEST_TOKEN_EXPIRES_IN = '24h'; // independiente del JWT_EXPIRES_IN real (15m)
 
 export class AuthController {
   githubLogin = (req: Request, res: Response): void => {
@@ -121,5 +122,30 @@ export class AuthController {
     } catch {
       res.status(401).json({ error: 'Invalid token' });
     }
+  };
+  testToken = (req: Request, res: Response): void => {
+    // Bloqueado en producción: nunca debe existir un endpoint que emita
+    // tokens sin password fuera de entornos de demo/desarrollo.
+    if (process.env.NODE_ENV === 'production') {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+
+    const { username, role } = req.body;
+
+    const payload = {
+      id: 999999,
+      username: username || 'demo-user',
+      name: 'Demo User (JMeter)',
+      avatar: 'https://avatars.githubusercontent.com/u/0',
+      provider: 'test',
+      role: role || 'student',
+    };
+
+    const accessToken = jwt.sign(payload, JWT_SECRET, {
+      expiresIn: TEST_TOKEN_EXPIRES_IN,
+    });
+
+    res.json({ accessToken, user: payload });
   };
 }
